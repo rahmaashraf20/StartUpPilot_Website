@@ -289,65 +289,118 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
           />
         </div>
 
-        <!-- Search + Filters + Sort -->
-        <div class="animate-slide-up" style="animation-delay: 100ms">
-          <!-- Search -->
-          <div class="relative mb-3">
-            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              v-model="searchQuery"
-              type="search"
-              class="sp-input pl-10 pr-4 py-2.5"
-              placeholder="Search tasks by title, project, or description…"
-              aria-label="Search tasks"
-            />
-          </div>
+       <!-- Search + Sort -->
+<div class="animate-slide-up" style="animation-delay:100ms">
 
-          <!-- Filter chips + Sort -->
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <!-- Filter chips -->
-            <div class="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Filter tasks">
-              <button
-                v-for="f in FILTERS"
-                :key="f"
-                type="button"
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 border"
-                :class="activeFilter === f
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-white text-slate-500 border-[#e4e4f0] hover:bg-slate-50 hover:text-slate-700'"
-                @click="activeFilter = f"
-              >
-                {{ f }}
-                <span
-                  v-if="f !== 'All'"
-                  class="ml-1 opacity-70"
-                >
-                  {{ f === 'Todo' ? tasks.filter(t => t.status === 'todo').length
-                    : f === 'In Progress' ? tasks.filter(t => t.status === 'in-progress').length
-                    : f === 'Review' ? tasks.filter(t => t.status === 'review').length
-                    : tasks.filter(t => t.done || t.status === 'done').length
-                  }}
-                </span>
-              </button>
-            </div>
+  <div class="flex items-center justify-between gap-4 flex-wrap">
 
-            <!-- Sort -->
-            <div class="flex items-center gap-2">
-              <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-              </svg>
-              <select
-                v-model="activeSort"
-                class="text-xs font-semibold text-slate-600 bg-white border border-[#e4e4f0] rounded-lg px-2.5 py-1.5 cursor-pointer outline-none hover:bg-slate-50 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                aria-label="Sort tasks"
-              >
-                <option v-for="s in SORTS" :key="s">{{ s }}</option>
-              </select>
-            </div>
-          </div>
-        </div>
+    <!-- Search -->
+    <div class="relative w-full lg:max-w-3xl">
+      <svg
+        class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        />
+      </svg>
+
+      <input
+        v-model="searchQuery"
+        type="search"
+        placeholder="Search tasks by title, project, or description..."
+        class="w-full h-11 rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
+      />
+    </div>
+
+    <!-- Sort -->
+    <div class="flex items-center gap-2 shrink-0">
+      <svg
+        class="w-4 h-4 text-slate-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
+        />
+      </svg>
+
+      <div class="relative">
+        <select
+          v-model="activeSort"
+          class="appearance-none h-11 rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-600 shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
+        >
+          <option
+            v-for="s in SORTS"
+            :key="s"
+          >
+            {{ s }}
+          </option>
+        </select>
+
+        <svg
+          class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Filters -->
+  <div
+    class="mt-4 flex items-center gap-2 flex-wrap"
+    role="group"
+    aria-label="Filter tasks"
+  >
+    <button
+      v-for="f in FILTERS"
+      :key="f"
+      type="button"
+      class="px-4 py-2 rounded-xl text-sm font-semibold transition-all border"
+      :class="activeFilter === f
+        ? 'bg-primary text-white border-primary shadow-sm'
+        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'"
+      @click="activeFilter = f"
+    >
+      {{ f }}
+
+      <span
+        v-if="f !== 'All'"
+        class="ml-1 opacity-70"
+      >
+        {{
+          f === 'Todo'
+            ? tasks.filter(t => t.status === 'todo').length
+            : f === 'In Progress'
+            ? tasks.filter(t => t.status === 'in-progress').length
+            : f === 'Review'
+            ? tasks.filter(t => t.status === 'review').length
+            : tasks.filter(t => t.done || t.status === 'done').length
+        }}
+      </span>
+    </button>
+  </div>
+
+</div>
 
         <!-- Task List -->
         <div class="space-y-3 animate-slide-up" style="animation-delay: 140ms">
