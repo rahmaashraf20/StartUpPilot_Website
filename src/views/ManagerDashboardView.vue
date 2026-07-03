@@ -401,7 +401,7 @@ const roadmap = computed(() =>
       <div class="sp-card p-6">
         <div class="flex items-center justify-between mb-5">
           <h3 class="font-bold text-slate-900">Active Tasks</h3>
-          <button class="text-xs font-semibold text-primary hover:underline">View all</button>
+          <!-- <button class="text-xs font-semibold text-primary hover:underline"><a href="ManagerTasksView.vue">View all</a></button> -->
         </div>
         <div class="space-y-3">
           <div

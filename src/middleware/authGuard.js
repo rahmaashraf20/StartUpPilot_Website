@@ -1,32 +1,38 @@
 import { useAuthStore } from '../stores/auth'
 
-export const dashboardRouteFor = (role) =>
-  role === 'manager' ? { name: 'manager-dashboard' } : role === 'employee' ? { name: 'employee-dashboard' } : { name: 'login' }
+export const dashboardRouteFor = (role) => {
+  if (role === 'manager') return { name: 'manager-dashboard' }
+  if (role === 'employee') return { name: 'employee-dashboard' }
+  return { name: 'landing' }
+}
 
-/**
- * Global navigation guard. Attach via router.beforeEach(authGuard).
- * Route meta flags supported:
- *  - requiresAuth: boolean
- *  - guestOnly: boolean (login/register — redirect away if already authenticated)
- *  - roles: string[] (restrict to specific roles)
- */
-export async function authGuard(to) {
+export async function authGuard(to, from, next) {
   const auth = useAuthStore()
-  if (!auth.initialized) {
+
+  if (!auth.initialized && typeof auth.restoreSession === 'function') {
     await auth.restoreSession()
   }
 
-  if (to.meta.guestOnly && auth.isAuthenticated) {
-    return dashboardRouteFor(auth.role)
+  const isAuthenticated = Boolean(auth.isAuthenticated)
+  const userRole = auth.user?.role || auth.role
+  const isGuestOnlyRoute = Boolean(to.meta.guestOnly)
+  const requiresAuth = Boolean(to.meta.requiresAuth)
+  const allowedRoles = Array.isArray(to.meta.roles) ? to.meta.roles : null
+
+  if (isGuestOnlyRoute && isAuthenticated) {
+    next(dashboardRouteFor(userRole))
+    return
   }
 
-  if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+  if (requiresAuth && !isAuthenticated) {
+    next({ name: 'login', query: { redirect: to.fullPath } })
+    return
   }
 
-  if (to.meta.roles && auth.isAuthenticated && !to.meta.roles.includes(auth.role)) {
-    return { name: 'unauthorized' }
+  if (allowedRoles && isAuthenticated && !allowedRoles.includes(userRole)) {
+    next({ name: 'unauthorized' })
+    return
   }
 
-  return true
+  next()
 }

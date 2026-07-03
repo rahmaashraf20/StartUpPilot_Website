@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useApiRequest } from '../composables/useApiRequest'
@@ -20,6 +20,13 @@ const form = ref({
   role: '',
 })
 
+const errors = reactive({
+  fullName: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+})
+
 const managerExtras = ref({
   startupName: '',
   companySize: '',
@@ -36,6 +43,23 @@ const isManager = computed(() => form.value.role === 'manager')
 
 const passwordsMatch = computed(() =>
   form.value.password === form.value.confirmPassword
+)
+
+const requiredFieldsFilled = computed(() =>
+  Boolean(
+    form.value.fullName.trim() &&
+    form.value.email.trim() &&
+    form.value.password &&
+    form.value.confirmPassword
+  )
+)
+
+const hasValidationErrors = computed(() =>
+  Object.values(errors).some(Boolean)
+)
+
+const isSubmitDisabled = computed(() =>
+  loading.value || !requiredFieldsFilled.value || hasValidationErrors.value
 )
 
 const theme = computed(() =>
@@ -77,9 +101,50 @@ function selectRole(key) {
   step.value = 1
 }
 
+function validateField(field) {
+  if (field === 'fullName') {
+    errors.fullName = form.value.fullName.trim() ? '' : 'Full name is required.'
+  }
+
+  if (field === 'email') {
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    errors.email = emailPattern.test(form.value.email.trim()) ? '' : 'Enter a valid email address.'
+  }
+
+  if (field === 'password') {
+    const password = form.value.password
+    if (password.length < 8) {
+      errors.password = 'Password must be at least 8 characters.'
+    } else if (!/[A-Z]/.test(password)) {
+      errors.password = 'Password must include at least one uppercase letter.'
+    } else if (!/\d/.test(password)) {
+      errors.password = 'Password must include at least one number.'
+    } else {
+      errors.password = ''
+    }
+
+    if (form.value.confirmPassword) validateField('confirmPassword')
+  }
+
+  if (field === 'confirmPassword') {
+    errors.confirmPassword = form.value.confirmPassword === form.value.password
+      ? ''
+      : 'Passwords do not match.'
+  }
+}
+
+function validateForm() {
+  validateField('fullName')
+  validateField('email')
+  validateField('password')
+  validateField('confirmPassword')
+}
+
 async function handleRegister() {
-  if (!passwordsMatch.value) {
-    toast.error('Passwords do not match')
+  validateForm()
+
+  if (isSubmitDisabled.value) {
+    toast.error('Please fix the highlighted fields')
     return
   }
 
@@ -240,20 +305,23 @@ async function handleRegister() {
           <form @submit.prevent="handleRegister" class="space-y-4">
             <div>
               <label class="sp-label">Full name</label>
-              <input type="text" v-model="form.fullName" placeholder="Alex Johnson" class="sp-input"  />
+              <input type="text" v-model="form.fullName" placeholder="Alex Johnson" class="sp-input" @input="validateField('fullName')" />
+              <p v-if="errors.fullName" class="text-xs text-red-500 mt-1.5">{{ errors.fullName }}</p>
             </div>
             <div>
               <label class="sp-label">Email</label>
-              <input type="email" v-model="form.email" placeholder="alex@startup.com" class="sp-input"  />
+              <input type="email" v-model="form.email" placeholder="alex@startup.com" class="sp-input" @input="validateField('email')" />
+              <p v-if="errors.email" class="text-xs text-red-500 mt-1.5">{{ errors.email }}</p>
             </div>
             <div>
               <label class="sp-label">Password</label>
-              <input type="password" v-model="form.password" placeholder="Min. 8 characters" class="sp-input"  />
+              <input type="password" v-model="form.password" placeholder="Min. 8 characters" class="sp-input" @input="validateField('password')" />
+              <p v-if="errors.password" class="text-xs text-red-500 mt-1.5">{{ errors.password }}</p>
             </div>
             <div>
               <label class="sp-label">Confirm password</label>
-              <input type="password" v-model="form.confirmPassword" placeholder="Repeat password" class="sp-input"  />
-              <p v-if="form.confirmPassword && !passwordsMatch" class="text-xs text-red-500 mt-1.5">Passwords do not match.</p>
+              <input type="password" v-model="form.confirmPassword" placeholder="Repeat password" class="sp-input" @input="validateField('confirmPassword')" />
+              <p v-if="errors.confirmPassword" class="text-xs text-red-500 mt-1.5">{{ errors.confirmPassword }}</p>
             </div>
 
             <!-- Optional, UI-only extras — never submitted to the register API -->
@@ -323,7 +391,7 @@ async function handleRegister() {
               </div>
             </div>
 
-            <button type="submit" :disabled="loading"
+            <button type="submit" :disabled="isSubmitDisabled"
               class="sp-btn-primary w-full justify-center py-3 text-base shadow-elevated mt-2 disabled:opacity-60"
               :class="theme.btn">
               <svg v-if="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

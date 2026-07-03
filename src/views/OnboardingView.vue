@@ -131,6 +131,27 @@ async function backToLogin() {
 
 <template>
   <div class="min-h-screen bg-surface flex flex-col">
+    <div
+      v-if="loading"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
+    >
+      <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center space-y-4">
+        <div
+          class="mx-auto w-16 h-16 rounded-full border-4 border-slate-100 border-t-transparent animate-spin"
+          :class="isManager ? 'border-r-violet-600' : 'border-r-emerald-600'"
+        ></div>
+        <div>
+          <h2 class="text-xl font-black text-slate-900">
+            {{ isManager ? 'Generating Workspace...' : 'Setting up profile...' }}
+          </h2>
+          <p class="text-sm text-slate-500 mt-2 leading-relaxed">
+            {{ isManager
+              ? 'Our AI models are building your startup roadmap and tasks. This may take a few moments.'
+              : 'Matching your skills with active workspace projects.' }}
+          </p>
+        </div>
+      </div>
+    </div>
 
     <!-- Top bar -->
     <div class="bg-white border-b border-[#e4e4f0] px-6 py-4 flex items-center justify-between">
