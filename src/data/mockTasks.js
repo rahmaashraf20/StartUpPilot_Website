@@ -3,11 +3,11 @@
 
 export const mockTasksAiRecommendation = {
   tag: 'Priority Insight',
-  headline: 'Finish Design System before Dashboard UI to unblock 3 tasks.',
-  body: 'Completing the Design System task first will unblock the Dashboard UI, Analytics Charts, and Component Library tasks — saving an estimated 4 hours of blocked work this week.',
+  headline: 'Complete your highest priority pending task.',
+  body: 'Finishing high-priority tasks first will improve project progress and help keep delivery on schedule.',
   confidence: 88,
-  focusTaskId: 'task-003',
-  suggestedAction: 'Start Design System',
+  focusTaskId: '',
+  suggestedAction: 'Start this task',
 }
 
 export const mockTasks = [

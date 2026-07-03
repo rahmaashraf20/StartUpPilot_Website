@@ -10,6 +10,7 @@ import AIRecommendationCard from '../components/dashboard/AIRecommendationCard.v
 import SkeletonBlock from '../components/dashboard/SkeletonBlock.vue'
 import { mockTasks, mockTasksAiRecommendation } from '../data/mockTasks'
 import { mockEmployeeUser } from '../data/mockEmployee'
+import { taskService } from '../services/taskService'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -24,15 +25,65 @@ function handleNavigate(id) {
 
 // ── Loading (prototype mode skeleton) ─────────────────────────────
 const isLoading = ref(true)
-onMounted(() => setTimeout(() => { isLoading.value = false }, 500))
+onMounted(async () => {
+  try {
+    const response = await taskService.getProjectTasks(
+      '6a4596e9a5776254d58c83b5'
+    )
 
-// ── Local task state ──────────────────────────────────────────────
-const tasks = ref(mockTasks.map((t) => ({
-  ...t,
-  checklist: (t.checklist || []).map((c) => ({ ...c })),
-  comments: (t.comments || []).map((c) => ({ ...c })),
-  attachments: (t.attachments || []).map((a) => ({ ...a })),
-})))
+    tasks.value = response.tasks.map((task) => ({
+      id: task._id,
+      title: task.title,
+      status: task.status,
+      priority:
+        task.priority === 'high'
+          ? 'High'
+          : task.priority === 'medium'
+          ? 'Medium'
+          : 'Low',
+
+      project: 'LaunchPilot AI',
+      dueDate: '',
+      estimatedTime: task.estimatedTime || '—',
+
+      assignedBy: 'Manager',
+
+      progress: task.status === 'done' ? 100 : 0,
+      done: task.status === 'done',
+
+      updatedAt: task.updatedAt,
+
+      checklist: [],
+      comments: [],
+      attachments: [],
+      activity: [],
+    }))
+    console.log('MAPPED TASKS', tasks.value)
+  } catch (error) {
+    console.error(error)
+  } finally {
+    isLoading.value = false
+  }
+})
+
+const tasks = ref([])
+// ── Priority Insight: pick the highest-priority pending task ───────
+// Falls back through High -> Medium -> Low instead of only matching
+// 'High', so the card always has something to recommend if any
+// pending task exists.
+const aiSuggestedTask = computed(() => {
+  const pending = tasks.value.filter((t) => t.status !== 'done')
+  if (pending.length === 0) return null
+  return [...pending].sort(
+    (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+  )[0]
+})
+
+const priorityHeadline = computed(() => {
+  return aiSuggestedTask.value
+    ? `Complete: ${aiSuggestedTask.value.title}`
+    : 'No pending tasks right now'
+})
 
 // ── Drawer ────────────────────────────────────────────────────────
 const drawerOpen = ref(false)
@@ -45,6 +96,11 @@ function openTask(task) {
 
 function closeDrawer() {
   drawerOpen.value = false
+}
+function handleStartSuggestedTask() {
+  if (aiSuggestedTask.value) {
+    openTask(aiSuggestedTask.value)
+  }
 }
 
 function handleComplete(id) {
@@ -67,25 +123,33 @@ function handleToggle(id) {
   if (t.done) t.progress = 100
 }
 
-function handleUpdateStatus({ id, status }) {
-  const t = tasks.value.find((t) => t.id === id)
-  if (!t) return
+async function handleUpdateStatus({ id, status }) {
+  try {
+    await taskService.updateTaskStatus(id, status)
 
-  const wasDone = t.status === 'done'
-  t.status = status
+    const t = tasks.value.find((t) => t.id === id)
+    if (!t) return
 
-  if (status === 'done') {
-    t.done = true
-    t.progress = 100
-    t.checklist = t.checklist.map((c) => ({ ...c, done: true }))
-  } else if (wasDone) {
-    t.done = false
-  }
+    const wasDone = t.status === 'done'
 
-  t.updatedAt = new Date().toISOString()
+    t.status = status
 
-  if (selectedTask.value && selectedTask.value.id === id) {
-    selectedTask.value = t
+    if (status === 'done') {
+      t.done = true
+      t.progress = 100
+    } else if (wasDone) {
+      t.done = false
+      t.progress = 0
+    }
+
+    if (selectedTask.value?.id === id) {
+      selectedTask.value = t
+    }
+
+    toast.success('Task updated successfully.')
+  } catch (error) {
+    console.error(error)
+    toast.error('Failed to update task.')
   }
 }
 
@@ -235,23 +299,10 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
     <div class="space-y-6 animate-fade-in">
 
       <!-- Page Header -->
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 class="text-2xl font-black text-slate-900 tracking-tight">My Tasks</h1>
-          <p class="text-sm text-slate-500 mt-1">Track, prioritize, and complete your assigned work.</p>
-        </div>
-        <button
-          type="button"
-          class="sp-btn-primary self-start sm:self-auto"
-          aria-label="Add new task"
-          @click="handleAddTask"
-        >
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Add Task
-        </button>
-      </div>
+<div>
+  <h1 class="text-2xl font-black text-slate-900 tracking-tight">My Tasks</h1>
+  <p class="text-sm text-slate-500 mt-1">Track, prioritize, and complete your assigned work.</p>
+</div>
 
       <!-- Loading Skeleton -->
       <template v-if="isLoading">
@@ -279,14 +330,14 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
 
         <!-- AI Recommendation -->
         <div class="animate-slide-up" style="animation-delay: 60ms">
-          <AIRecommendationCard
-            :tag="mockTasksAiRecommendation.tag"
-            :headline="mockTasksAiRecommendation.headline"
-            :body="mockTasksAiRecommendation.body"
-            :confidence="mockTasksAiRecommendation.confidence"
-            :task-title="mockTasksAiRecommendation.suggestedAction"
-            @apply="handleApplyAI"
-          />
+<AIRecommendationCard
+  tag="Priority Insight"
+  :headline="priorityHeadline"
+  body="Finishing this high-priority task will improve project progress and help keep delivery on schedule."
+  :confidence="88"
+  :show-action="!!aiSuggestedTask"
+  @apply="handleStartSuggestedTask"
+/>
         </div>
 
         <!-- Search + Filters + Sort -->
