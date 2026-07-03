@@ -12,7 +12,15 @@ const router = createRouter({
     { path: '/register', name: 'register', component: () => import('../views/RegisterView.vue'), meta: { guestOnly: true } },
 
     // Protected (any authenticated user)
-    { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue'), meta: { requiresAuth: true } },
+    {
+  path: '/onboarding',
+  name: 'onboarding',
+  component: () => import('../views/OnboardingView.vue'),
+  meta: {
+    requiresAuth: true,
+    roles: ['manager'],
+  },
+},
 
 
     // Empty dashboard (no roadmap yet)
