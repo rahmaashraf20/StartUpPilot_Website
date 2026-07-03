@@ -30,6 +30,7 @@ const employeeExtras = ref({
   department: '',
   experience: '',
   skills: '',
+  inviteCode: '',
 })
 
 const isManager = computed(() => form.value.role === 'manager')
@@ -94,28 +95,29 @@ async function handleRegister() {
     payload.workspaceName = managerExtras.value.startupName.trim()
     payload.startupName = managerExtras.value.startupName.trim()
   } else {
-    payload.inviteCode = ''
     payload.specialization = employeeExtras.value.skills.trim()
+    payload.inviteCode = employeeExtras.value.inviteCode.trim()
   }
 
   console.log('Register Payload:', payload)
 
-  try {
-    await run(() => auth.register(payload))
+try {
+  await run(() => auth.register(payload))
 
-    toast.success('Account created')
+  toast.success('Account created')
 
-    router.push(
-  form.value.role === 'manager'
-    ? '/onboarding'
-    : '/join-workspace'
-)
-  } catch (err) {
-    console.error('Register Error:', err)
-    console.error('API Error:', error.value)
+  router.push(
+    form.value.role === 'manager'
+      ? '/onboarding'
+       : '/dashboard/employee'
+  )
 
-    toast.error(error.value || 'Registration failed')
-  }
+} catch (err) {
+  console.error('Register Error:', err)
+  console.error('API Error:', error.value)
+
+  toast.error(error.value || 'Registration failed')
+}
 }
 </script>
 
@@ -305,21 +307,38 @@ async function handleRegister() {
                     <option value="operations">Operations</option>
                   </select>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="sp-label">Experience</label>
-                    <select v-model="employeeExtras.experience" class="sp-input">
-                      <option value="">Select</option>
-                      <option value="junior">Junior</option>
-                      <option value="mid">Mid-level</option>
-                      <option value="senior">Senior</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="sp-label">Top skill</label>
-                    <input type="text" v-model="employeeExtras.skills" placeholder="e.g. Vue.js" class="sp-input" />
-                  </div>
-                </div>
+<div class="grid grid-cols-2 gap-3">
+  <div>
+    <label class="sp-label">Experience</label>
+    <select v-model="employeeExtras.experience" class="sp-input">
+      <option value="">Select</option>
+      <option value="junior">Junior</option>
+      <option value="mid">Mid-level</option>
+      <option value="senior">Senior</option>
+    </select>
+  </div>
+
+  <div>
+    <label class="sp-label">Top skill</label>
+    <input
+      type="text"
+      v-model="employeeExtras.skills"
+      placeholder="e.g. Vue.js"
+      class="sp-input"
+    />
+  </div>
+</div>
+
+<!-- Invitation Code -->
+<div>
+  <label class="sp-label">Invitation Code</label>
+  <input
+    type="text"
+    v-model="employeeExtras.inviteCode"
+    placeholder="Enter your invitation code"
+    class="sp-input"
+  />
+</div>
               </div>
             </div>
 

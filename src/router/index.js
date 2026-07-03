@@ -14,13 +14,6 @@ const router = createRouter({
     // Protected (any authenticated user)
     { path: '/onboarding', name: 'onboarding', component: () => import('../views/OnboardingView.vue'), meta: { requiresAuth: true } },
 
- 
-    {
-      path: '/join-workspace',
-      name: 'join-workspace',
-      component: () => import('../views/JoinWorkspaceView.vue'),
-      meta: { requiresAuth: true, roles: ['employee'] },
-    },
 
     // Empty dashboard (no roadmap yet)
     {
