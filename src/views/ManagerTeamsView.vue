@@ -1,0 +1,279 @@
+<script setup>
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
+import { useAuthUser } from '../composables/useAuthUser'
+import {
+  managerSidebarSections,
+  managerNotificationsCount,
+  mockManagerUser,
+  mockTeamStats,
+  mockTeamMembers,
+  mockPendingInvites,
+} from '../data/mockManager'
+
+const router = useRouter()
+const topbarUser = useAuthUser(mockManagerUser)
+const activeNav = ref('teams')
+
+function handleNavigate(id) {
+  activeNav.value = id
+  if (id === 'dashboard') router.push('/dashboard/manager')
+  if (id === 'financials') router.push('/manager/financials')
+  if (id === 'projects') router.push('/manager/projects')
+  if (id === 'tasks') router.push('/manager/tasks')
+  if (id === 'calendar') router.push('/manager/calendar')
+  if (id === 'settings') router.push('/manager/settings')
+}
+
+const members = ref(mockTeamMembers.map(m => ({ ...m })))
+const pendingInvites = ref(mockPendingInvites.map(i => ({ ...i })))
+const inviteEmail = ref('')
+const inviteRole = ref('Employee')
+
+function removeInvite(id) {
+  pendingInvites.value = pendingInvites.value.filter(i => i.id !== id)
+}
+
+function sendInvite() {
+  if (!inviteEmail.value) return
+  pendingInvites.value.unshift({
+    id: 'i' + Date.now(),
+    email: inviteEmail.value,
+    role: inviteRole.value,
+    sentAgo: 'just now',
+  })
+  inviteEmail.value = ''
+}
+
+const roleBadgeClass = {
+  Manager: 'bg-emerald-100 text-emerald-700',
+  'Team Lead': 'bg-violet-100 text-violet-700',
+  Employee: 'bg-slate-100 text-slate-600',
+}
+
+const statIcons = {
+  members: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
+  productivity: 'M13 10V3L4 14h7v7l9-11h-7z',
+  tasks: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
+  growth: 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6',
+}
+
+function getInitials(name) {
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+}
+</script>
+
+<template>
+  <DashboardLayout
+    :active-id="activeNav"
+    :sidebar-sections="managerSidebarSections"
+    :notifications-count="managerNotificationsCount"
+    :user="topbarUser"
+    @navigate="handleNavigate"
+  >
+    <!-- Page header -->
+    <div class="flex items-start justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-black text-slate-900">Team Management</h1>
+        <p class="text-sm text-slate-400 mt-0.5">Manage your team and their productivity scores.</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="sp-btn-outline gap-2 text-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+          Filter
+        </button>
+        <button class="sp-btn-outline gap-2 text-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export
+        </button>
+      </div>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div v-for="stat in mockTeamStats" :key="stat.label" class="sp-card p-5">
+        <div class="flex items-start justify-between mb-2">
+          <p class="text-xs font-semibold text-slate-500">{{ stat.label }}</p>
+          <div class="w-7 h-7 rounded-lg bg-primary-light flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" :d="statIcons[stat.icon]" />
+            </svg>
+          </div>
+        </div>
+        <p class="text-2xl font-black text-slate-900">{{ stat.value }}</p>
+        <p v-if="stat.delta" class="text-[11px] text-emerald-500 font-semibold mt-1">{{ stat.delta }}</p>
+      </div>
+    </div>
+
+    <!-- Active Members + Permissions -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+
+      <!-- Members list -->
+      <div class="lg:col-span-2 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-bold text-slate-900">Active Members</h2>
+            <p class="text-xs text-slate-400">Manage your team and their productivity scores.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div v-for="member in members" :key="member.id" class="sp-card p-5">
+            <div class="flex items-start justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-violet-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                  {{ getInitials(member.name) }}
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-900 text-sm">{{ member.name }}</p>
+                  <p class="text-xs text-slate-400">{{ member.title }}</p>
+                </div>
+              </div>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="roleBadgeClass[member.role] || 'bg-slate-100 text-slate-600'">{{ member.role }}</span>
+            </div>
+
+            <p class="text-xs text-slate-400 mb-3 flex items-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              {{ member.email }}
+            </p>
+
+            <div class="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span>Productivity</span>
+              <span class="font-bold text-slate-800">Tasks</span>
+            </div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2 flex-1">
+                <span class="text-sm font-bold text-slate-800">{{ member.productivity }}%</span>
+                <div class="flex gap-0.5 flex-1">
+                  <div v-for="seg in 5" :key="seg"
+                    class="flex-1 h-1.5 rounded-sm"
+                    :class="seg <= Math.round(member.productivity / 20) ? 'bg-primary' : 'bg-slate-100'"
+                  ></div>
+                </div>
+              </div>
+              <span class="text-sm font-bold text-slate-800 ml-4">{{ member.activeTasks }} Active</span>
+            </div>
+
+            <div class="flex items-center gap-2 pt-3 border-t border-[#e4e4f0] mt-1">
+              <button class="sp-btn-ghost p-1.5 text-slate-400 hover:text-primary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+              <button class="sp-btn-ghost p-1.5 text-slate-400 hover:text-primary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+              <button class="sp-btn-ghost p-1.5 text-slate-400 hover:text-primary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Invite New Member -->
+        <div class="sp-card p-5">
+          <h3 class="font-semibold text-slate-900 mb-4">Invite New Member</h3>
+          <div class="flex gap-3">
+            <input
+              v-model="inviteEmail"
+              type="email"
+              placeholder="email@company.com"
+              class="sp-input flex-1"
+              @keyup.enter="sendInvite"
+            />
+            <select v-model="inviteRole" class="sp-input w-36">
+              <option>Employee</option>
+              <option>Team Lead</option>
+              <option>Manager</option>
+            </select>
+            <button class="sp-btn-primary px-5 whitespace-nowrap" @click="sendInvite">Send Invitation</button>
+          </div>
+          <button class="mt-3 flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Generate Invite Code
+          </button>
+        </div>
+
+        <!-- Pending Invitations -->
+        <div class="sp-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-900">Pending Invitations</h3>
+            <span class="text-xs font-bold text-slate-400">{{ pendingInvites.length }} Sent</span>
+          </div>
+          <div class="space-y-3">
+            <div v-for="inv in pendingInvites" :key="inv.id" class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
+                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                </svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ inv.email }}</p>
+                <p class="text-xs text-slate-400">Sent {{ inv.sentAgo }} · {{ inv.role }}</p>
+              </div>
+              <button class="text-xs font-semibold text-primary hover:underline">Resend</button>
+              <button class="sp-btn-ghost p-1" @click="removeInvite(inv.id)">
+                <svg class="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Permissions Overview -->
+      <div class="space-y-4">
+        <div class="sp-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-slate-900">Permissions Overview</h3>
+            <button class="text-xs font-semibold text-primary hover:underline">Manage Rules</button>
+          </div>
+          <div class="space-y-3">
+            <div v-for="perm in [
+              { role: 'Manager', icon: 'shield', desc: 'Full access to billing, team settings, and analytics. Can delete projects.', color: 'text-emerald-600 bg-emerald-50' },
+              { role: 'Team Lead', icon: 'badge', desc: 'Can invite members, manage tasks, and view team productivity charts.', color: 'text-violet-600 bg-violet-50' },
+              { role: 'Employee', icon: 'user', desc: 'View and edit assigned tasks. Access to general project documentation.', color: 'text-slate-600 bg-slate-100' },
+            ]" :key="perm.role" class="p-3 rounded-xl border border-[#e4e4f0]">
+              <div class="flex items-center gap-2 mb-1">
+                <div class="w-6 h-6 rounded-md flex items-center justify-center" :class="perm.color">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path v-if="perm.icon === 'shield'" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    <path v-else-if="perm.icon === 'badge'" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                    <path v-else stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <span class="text-sm font-bold text-slate-800">{{ perm.role }}</span>
+              </div>
+              <p class="text-xs text-slate-500 leading-relaxed">{{ perm.desc }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Permissions Insight -->
+        <div class="sp-card p-5 border-primary/20 bg-primary-light/30">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-xs font-bold text-primary uppercase tracking-wide">AI Permissions Insight</p>
+            <svg class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.674M12 3v1m6.364.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707M8 17a4 4 0 118 0c0 1.5-1 2-1 3H9c0-1-1-1.5-1-3z" />
+            </svg>
+          </div>
+          <p class="text-xs text-slate-600 leading-relaxed">3 members haven't accessed their dashboard in 14 days. Consider reviewing access rights to optimize seat usage.</p>
+        </div>
+      </div>
+    </div>
+  </DashboardLayout>
+</template>
