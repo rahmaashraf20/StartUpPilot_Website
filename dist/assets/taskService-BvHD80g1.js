@@ -1,1 +1,0 @@
-import{r as e}from"./index-CrhL0v19.js";var t={getProjectTasks(t){return e.get(`/projects/${t}/tasks`)},createTask(t,n){return e.post(`/projects/${t}/tasks`,n)},updateTaskStatus(t,n){return e.put(`/projects/tasks/${t}/status`,{status:n})}};export{t};

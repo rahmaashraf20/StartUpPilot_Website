@@ -1,1 +1,0 @@
-import{O as e,x as t,z as n}from"./index-CrhL0v19.js";var r={__name:`SkeletonBlock`,props:{height:{type:String,default:`1rem`},width:{type:String,default:`100%`},rounded:{type:String,default:`0.5rem`}},setup(r){return(i,a)=>(e(),t(`div`,{class:`animate-pulse bg-slate-100`,style:n({height:r.height,width:r.width,borderRadius:r.rounded})},null,4))}};export{r as t};
