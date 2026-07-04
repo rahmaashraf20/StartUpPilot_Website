@@ -22,6 +22,7 @@ export function clearTokens() {
   localStorage.removeItem(STORAGE_KEYS.accessToken)
   localStorage.removeItem(STORAGE_KEYS.refreshToken)
   localStorage.removeItem(STORAGE_KEYS.user)
+  localStorage.removeItem(STORAGE_KEYS.inviteCode)
 }
 
 class ApiError extends Error {

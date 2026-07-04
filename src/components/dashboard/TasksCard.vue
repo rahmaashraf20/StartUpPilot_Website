@@ -4,6 +4,9 @@ import TaskItem from './TaskItem.vue'
 
 const props = defineProps({
   tasks: { type: Array, required: true },
+  title: { type: String, default: "Today's Tasks" },
+  emptyTitle: { type: String, default: "You're all caught up" },
+  emptyBody: { type: String, default: 'No tasks scheduled for today.' },
 })
 
 const emit = defineEmits(['toggle-task', 'view-all'])
@@ -16,9 +19,9 @@ const allDone = computed(() => props.tasks.length > 0 && remaining.value === 0)
   <div class="sp-card p-6">
     <div class="flex items-center justify-between mb-2">
       <div>
-        <h3 class="font-bold text-slate-900">Today's Tasks</h3>
+        <h3 class="font-bold text-slate-900">{{ title }}</h3>
         <p class="text-xs text-slate-400 mt-0.5">
-          {{ tasks.length === 0 ? 'Nothing scheduled for today' : `${remaining} of ${tasks.length} remaining` }}
+          {{ tasks.length === 0 ? 'Nothing scheduled' : `${remaining} of ${tasks.length} remaining` }}
         </p>
       </div>
       <button type="button" class="sp-btn-ghost text-xs py-1.5" @click="emit('view-all')">
@@ -33,8 +36,8 @@ const allDone = computed(() => props.tasks.length > 0 && remaining.value === 0)
           <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p class="text-sm font-semibold text-slate-700">You're all caught up</p>
-      <p class="text-xs text-slate-400 mt-1">No tasks scheduled for today.</p>
+      <p class="text-sm font-semibold text-slate-700">{{ emptyTitle }}</p>
+      <p class="text-xs text-slate-400 mt-1">{{ emptyBody }}</p>
     </div>
 
     <!-- All done state -->

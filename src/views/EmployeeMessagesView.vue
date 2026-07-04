@@ -1,4 +1,4 @@
-<script setup>
+<!-- <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
 import StatCard from '../components/dashboard/StatCard.vue'
@@ -111,7 +111,7 @@ const stats = computed(() => [
 
 // ── Empty state helper ──────────────────────────────────────────────
 const noConversations = computed(() => !isLoading.value && conversations.length === 0)
-</script>
+</script> -->
 
 <template>
   <DashboardLayout :active-id="activeSection" @navigate="handleNavigate">

@@ -56,7 +56,7 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-surface flex">
+  <div class="h-screen overflow-hidden bg-surface flex">
 
     <Sidebar
       :sections="navSections"
@@ -69,7 +69,7 @@ async function handleLogout() {
       @logout="handleLogout"
     />
 
-    <div class="flex-1 flex flex-col min-w-0">
+    <div class="min-w-0 flex flex-1 flex-col overflow-hidden">
       <Topbar
         :user="employee"
         :notifications-count="notifCount"
@@ -80,7 +80,7 @@ async function handleLogout() {
         @navigate-user="handleNavigate"
       />
 
-      <main class="flex-1 p-5 lg:p-7 min-w-0">
+      <main class="min-w-0 flex-1 overflow-y-auto p-5 lg:p-7">
         <slot />
       </main>
     </div>

@@ -31,15 +31,11 @@ export const sidebarNavSections = [
       { id: 'home', label: 'Home', icon: 'projects', to: '/dashboard/employee' },
       { id: 'tasks', label: 'My Tasks', icon: 'tasks', to: '/dashboard/employee/tasks' },
       { id: 'projects', label: 'My Projects', icon: 'files', to: '/dashboard/employee/projects' },
-      { id: 'calendar', label: 'Calendar', icon: 'calendar', to: '/dashboard/employee/calendar' },
-      { id: 'messages', label: 'Messages', icon: 'messages', to: '/dashboard/employee/messages' },
-      { id: 'ai-assistant', label: 'AI Assistant', icon: 'ai', to: '/dashboard/employee/ai-workspace' },
     ],
   },
   {
     title: 'Account',
     items: [
-      { id: 'profile', label: 'Profile', icon: 'profile', to: '/dashboard/employee/profile' },
       { id: 'settings', label: 'Settings', icon: 'settings', to: '/dashboard/employee/settings' },
     ],
   },
@@ -99,11 +95,11 @@ export const mockTodaysTasks = [
 
 // AI Recommendation — premium "what should I do next" panel.
 export const mockAiRecommendation = {
-  headline: 'Tackle API Docs before your 2:30 sync',
-  body: "You have 3 tasks due today. Finishing Finalize API Documentation first clears your highest-priority item while you're fresh, and leaves buffer time before the Team Sync.",
-  focusTaskId: 'task-1',
-  confidence: 92,
-  tag: 'Focus Suggestion',
+  headline: 'Complete your highest priority task',
+  body: 'Finish the highest-priority pending task to increase overall project progress and unblock dependent work.',
+  focusTaskId: '',
+  confidence: 88,
+  tag: 'Priority Insight',
 }
 
 // Project Progress — only projects this employee is assigned to.

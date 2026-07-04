@@ -52,17 +52,17 @@ const STATUS_LABEL = {
       <!-- Content -->
       <div class="flex-1 min-w-0">
         <!-- Top row: title + badges -->
-        <div class="flex items-start justify-between gap-2 flex-wrap">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="flex-1 min-w-0">
             <p
-              class="font-bold text-slate-900 text-sm leading-snug transition-colors truncate"
+              class="font-bold text-slate-900 text-sm leading-snug transition-colors"
               :class="task.done ? 'line-through text-slate-400' : ''"
             >
               {{ task.title }}
             </p>
-            <p class="text-xs text-slate-400 mt-0.5 truncate">{{ task.description }}</p>
+            <p class="text-xs text-slate-400 mt-1 line-clamp-2">{{ task.description }}</p>
           </div>
-          <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          <div class="flex items-center gap-1.5 shrink-0 flex-wrap sm:justify-end">
             <span class="sp-badge text-xs" :class="PRIORITY_STYLE[task.priority]">{{ task.priority }}</span>
             <span class="sp-badge text-xs" :class="STATUS_STYLE[task.status]">{{ STATUS_LABEL[task.status] }}</span>
           </div>
@@ -83,7 +83,7 @@ const STATUS_LABEL = {
         </div>
 
         <!-- Meta row -->
-        <div class="flex items-center gap-3 mt-3 flex-wrap">
+        <div class="flex items-center gap-x-3 gap-y-2 mt-3 flex-wrap">
           <!-- Project -->
           <span class="flex items-center gap-1 text-xs text-slate-400">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -106,11 +106,11 @@ const STATUS_LABEL = {
             {{ task.estimatedTime }}
           </span>
           <!-- Assigned by -->
-          <span class="flex items-center gap-1 text-xs text-slate-400 ml-auto">
+          <span class="flex min-w-0 items-center gap-1 text-xs text-slate-400 sm:ml-auto">
             <div class="w-4 h-4 rounded-full bg-primary-light flex items-center justify-center shrink-0">
               <span class="text-[8px] font-black text-primary">{{ task.assignedBy[0] }}</span>
             </div>
-            {{ task.assignedBy }}
+            <span class="truncate">{{ task.assignedBy }}</span>
           </span>
         </div>
       </div>

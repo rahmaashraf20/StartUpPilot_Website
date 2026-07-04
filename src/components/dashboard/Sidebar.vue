@@ -26,7 +26,7 @@ const widthClass = computed(() => (props.collapsed ? 'w-[72px]' : 'w-60'))
 
   <!-- Desktop sidebar (static) -->
   <aside
-    class="hidden lg:flex flex-col shrink-0 border-r border-[#e4e4f0] bg-white py-5 transition-all duration-200"
+    class="sticky top-0 hidden h-screen max-h-screen lg:flex flex-col shrink-0 overflow-hidden border-r border-[#e4e4f0] bg-white py-5 transition-all duration-200"
     :class="[widthClass, collapsed ? 'px-2' : 'px-3']"
   >
     <router-link
@@ -42,7 +42,7 @@ const widthClass = computed(() => (props.collapsed ? 'w-[72px]' : 'w-60'))
       <span v-if="!collapsed">Startup<span class="text-primary">Pilot</span></span>
     </router-link>
 
-    <div class="flex-1 overflow-y-auto space-y-5">
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5 pr-1">
       <div v-for="section in sections" :key="section.title" class="space-y-0.5">
         <p v-if="!collapsed" class="sp-section-title px-3 mb-2 mt-1">{{ section.title }}</p>
         <div v-else class="h-2"></div>
@@ -81,7 +81,7 @@ const widthClass = computed(() => (props.collapsed ? 'w-[72px]' : 'w-60'))
   <Transition name="slide-drawer">
     <aside
       v-if="mobileOpen"
-      class="fixed inset-y-0 left-0 z-50 w-64 bg-white flex flex-col py-5 px-3 lg:hidden shadow-elevated"
+      class="fixed inset-y-0 left-0 z-50 h-dvh w-64 overflow-hidden bg-white flex flex-col py-5 px-3 lg:hidden shadow-elevated"
     >
       <div class="flex items-center justify-between px-3 mb-4">
         <router-link to="/" class="flex items-center gap-2 font-black text-base text-slate-900 tracking-tight" @click="emit('close-mobile')">
@@ -99,7 +99,7 @@ const widthClass = computed(() => (props.collapsed ? 'w-[72px]' : 'w-60'))
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto space-y-5">
+      <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5">
         <div v-for="section in sections" :key="section.title" class="space-y-0.5">
           <p class="sp-section-title px-3 mb-2 mt-1">{{ section.title }}</p>
           <NavItem

@@ -4,6 +4,10 @@ defineProps({
   headline: { type: String, required: true },
   body: { type: String, required: true },
   confidence: { type: Number, default: 0 },
+    showAction: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 const emit = defineEmits(['apply'])
@@ -33,7 +37,7 @@ const emit = defineEmits(['apply'])
       <h3 class="text-lg font-black text-slate-900 leading-snug">{{ headline }}</h3>
       <p class="text-sm text-slate-600 leading-relaxed mt-2 max-w-md">{{ body }}</p>
 
-      <button type="button" class="sp-btn-primary mt-5 text-xs py-2 px-4" @click="emit('apply')">
+      <button type="button" class="sp-btn-primary mt-5 text-xs py-2 px-4" v-if="showAction" @click="emit('apply')">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
         </svg>
