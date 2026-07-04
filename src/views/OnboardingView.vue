@@ -18,6 +18,9 @@ const { loading, error, fieldErrors, run } = useApiRequest()
 
 const isManager = computed(() => auth.role === 'manager')
 const currentStep = ref(0)
+const isCompletingSetup = ref(false)
+const setupLoadingMessage = ref('')
+const isBusy = computed(() => loading.value || isCompletingSetup.value)
 
 // Presentation only — mirrors the role theme introduced in Register /
 // Create Startup / Join Workspace so the wizard feels continuous.
@@ -58,6 +61,11 @@ function prevStep() {
 
 async function handleSubmit() {
   try {
+    isCompletingSetup.value = true
+    setupLoadingMessage.value = isManager.value
+      ? 'Creating your project workspace...'
+      : 'Setting up your profile...'
+
     if (isManager.value) {
       const createResponse = await onboardingService.createProject({
         managerId: auth.user.id,
@@ -75,6 +83,7 @@ async function handleSubmit() {
         throw new Error('Project ID not found in createProject response')
       }
 
+     setupLoadingMessage.value = 'Generating your AI roadmap, financial plan, and starter tasks...'
      const aiResponse = await aiStore.generatePlan(projectId)
      localStorage.setItem('projectId', projectId)
      console.log('Store after AI:', {
@@ -85,6 +94,7 @@ async function handleSubmit() {
 
 console.log('AI Response =>', aiResponse)
 
+      setupLoadingMessage.value = 'Saving your workspace setup...'
       await onboardingService.updateOnboarding(projectId, {
         currentStep: 1,
         marketInfo: {
@@ -110,6 +120,8 @@ console.log('AI Response =>', aiResponse)
     router.push(dashboardRouteFor(auth.role))
   } catch (err) {
     console.error(err)
+    isCompletingSetup.value = false
+    setupLoadingMessage.value = ''
 
     toast.error(
       err?.response?.data?.message ||
@@ -132,7 +144,7 @@ async function backToLogin() {
 <template>
   <div class="min-h-screen bg-surface flex flex-col">
     <div
-      v-if="loading"
+      v-if="isBusy"
       class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
     >
       <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center space-y-4">
@@ -142,12 +154,15 @@ async function backToLogin() {
         ></div>
         <div>
           <h2 class="text-xl font-black text-slate-900">
-            {{ isManager ? 'Generating Workspace...' : 'Setting up profile...' }}
+            {{ isManager ? 'Building your workspace...' : 'Setting up profile...' }}
           </h2>
           <p class="text-sm text-slate-500 mt-2 leading-relaxed">
             {{ isManager
-              ? 'Our AI models are building your startup roadmap and tasks. This may take a few moments.'
+              ? 'The AI is generating your roadmap, financial plan, and tasks. This may take a few moments.'
               : 'Matching your skills with active workspace projects.' }}
+          </p>
+          <p v-if="setupLoadingMessage" class="mt-4 text-xs font-bold uppercase tracking-wide text-primary">
+            {{ setupLoadingMessage }}
           </p>
         </div>
       </div>
@@ -155,7 +170,7 @@ async function backToLogin() {
 
     <!-- Top bar -->
     <div class="bg-white border-b border-[#e4e4f0] px-6 py-4 flex items-center justify-between">
-      <button @click="backToLogin" class="sp-btn-ghost text-sm">
+      <button @click="backToLogin" :disabled="isBusy" class="sp-btn-ghost text-sm disabled:opacity-50">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
         </svg>
@@ -293,7 +308,7 @@ async function backToLogin() {
 
         <!-- Navigation -->
         <div class="flex justify-between items-center pt-6 mt-2 border-t border-[#e4e4f0]">
-          <button @click="prevStep" :disabled="currentStep === 0"
+          <button @click="prevStep" :disabled="currentStep === 0 || isBusy"
             class="sp-btn-ghost" :class="currentStep === 0 ? 'opacity-0 pointer-events-none' : ''">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
@@ -301,18 +316,18 @@ async function backToLogin() {
             Back
           </button>
 
-          <button v-if="currentStep < steps.length - 1" @click="nextStep" class="sp-btn-primary px-7 py-2.5" :class="theme.btn">
+          <button v-if="currentStep < steps.length - 1" @click="nextStep" :disabled="isBusy" class="sp-btn-primary px-7 py-2.5 disabled:opacity-60" :class="theme.btn">
             Continue
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </button>
-          <button v-else @click="handleSubmit" :disabled="loading" class="sp-btn-primary px-8 py-2.5 shadow-elevated disabled:opacity-60" :class="theme.btn">
-            <svg v-if="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <button v-else @click="handleSubmit" :disabled="isBusy" class="sp-btn-primary px-8 py-2.5 shadow-elevated disabled:opacity-60" :class="theme.btn">
+            <svg v-if="isBusy" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
             </svg>
-            {{ loading ? 'Setting up...' : 'Complete setup' }}
+            {{ isBusy ? 'Setting up...' : 'Complete setup' }}
           </button>
         </div>
       </div>

@@ -1,18 +1,14 @@
 <script setup>
-import EmptyDashboardView from './EmptyDashboardView.vue'
-import { ref, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAIStore } from '../stores/ai'
-import { useTaskStore } from '../stores/tasks'
+import EmptyDashboardView from './EmptyDashboardView.vue'
 import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
 import { useAuthUser } from '../composables/useAuthUser'
-import { onMounted } from 'vue'
+import { useAIStore } from '../stores/ai'
+import { useAuthStore } from '../stores/auth'
+import { useTaskStore } from '../stores/tasks'
 
 import {
-  mockManagerStats,
-  mockRevenueChart,
-  mockActiveTasks,
-  mockAiAdvisory,
   managerSidebarSections,
   managerNotificationsCount,
   mockManagerUser,
@@ -20,32 +16,109 @@ import {
 
 const topbarUser = useAuthUser(mockManagerUser)
 const router = useRouter()
+const auth = useAuthStore()
 const aiStore = useAIStore()
 const taskStore = useTaskStore()
+
+const activeNav = ref('dashboard')
+const dismissedAdvisory = ref(false)
+
 onMounted(async () => {
   const projectId = localStorage.getItem('projectId')
-
   if (!projectId) return
 
-  if (aiStore.roadmap.length === 0) {
-    try {
-      await aiStore.loadAIOutput(projectId)
-await taskStore.loadTasks(projectId)
-    } catch (err) {
-      console.error('Failed to load AI output', err)
-    }
+  try {
+    await aiStore.loadAIOutput(projectId)
+    await taskStore.loadTasks(projectId)
+  } catch (err) {
+    console.error('Failed to load dashboard data', err)
   }
 })
-console.log('overview =', aiStore.overview)
-console.log('roadmap =', aiStore.roadmap)
-console.log('roadmap length =', aiStore.roadmap.length)
-console.log('tasks length =', aiStore.tasks.length)
-const activeNav = ref('dashboard')
 
 const hasRoadmap = computed(() => aiStore.roadmap.length > 0)
-console.log('Roadmap Length:', aiStore.roadmap.length)
-console.log('Has Roadmap:', hasRoadmap.value)
-const dismissedAdvisory = ref(false)
+const inviteCode = computed(() => auth.user?.inviteCode || auth.inviteCode || '')
+const financialPlan = computed(() => aiStore.financialPlan || {})
+const expectedRevenue = computed(() => financialPlan.value.expectedRevenue || {})
+
+const formatCurrency = (value) => {
+  if (value === null || value === undefined || value === '') return '--'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(Number(value))
+}
+
+const groupedRoadmap = computed(() => {
+  const groups = new Map()
+
+  aiStore.roadmap
+    .slice()
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .forEach((item) => {
+      const phase = item.phase || 'Execution'
+      if (!groups.has(phase)) groups.set(phase, [])
+      groups.get(phase).push(item)
+    })
+
+  return Array.from(groups, ([phase, items], index) => ({
+    phase,
+    order: index + 1,
+    items,
+  }))
+})
+
+const dashboardStats = computed(() => [
+  {
+    label: 'Roadmap Steps',
+    value: aiStore.roadmap.length || '--',
+    detail: `${groupedRoadmap.value.length || 0} execution phases`,
+    tone: 'primary',
+  },
+  {
+    label: 'Startup Cost',
+    value: formatCurrency(financialPlan.value.estimatedStartupCost),
+    detail: 'Estimated launch capital',
+    tone: 'violet',
+  },
+  {
+    label: 'Monthly Burn',
+    value: formatCurrency(financialPlan.value.monthlyBurnRate),
+    detail: 'Planned operating spend',
+    tone: 'amber',
+  },
+  {
+    label: 'Target Revenue',
+    value: formatCurrency(expectedRevenue.value.target),
+    detail: 'Projected monthly target',
+    tone: 'emerald',
+  },
+])
+
+const activeTasks = computed(() =>
+  taskStore.tasks.slice(0, 5).map((task) => ({
+    id: task._id,
+    title: task.title,
+    priority: task.priority?.toUpperCase() || 'LOW',
+    due: task.estimatedTime || 'No estimate',
+    done: task.status === 'done',
+    sub: task.assignedMember?.name || 'Unassigned',
+  }))
+)
+
+const priorityClass = {
+  HIGH: 'bg-red-50 text-red-600',
+  MEDIUM: 'bg-amber-50 text-amber-600',
+  MED: 'bg-amber-50 text-amber-600',
+  LOW: 'bg-slate-100 text-slate-500',
+}
+
+const statToneClass = {
+  primary: 'bg-primary-light text-primary border-primary/20',
+  violet: 'bg-violet-50 text-violet-600 border-violet-100',
+  amber: 'bg-amber-50 text-amber-600 border-amber-100',
+  emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+}
 
 function handleNavigate(id) {
   activeNav.value = id
@@ -57,46 +130,26 @@ function handleNavigate(id) {
   if (id === 'financials') router.push('/manager/financials')
 }
 
-const forecastMode = ref('Forecast')
-const tasks = computed(() =>
-  taskStore.tasks.map(task => ({
-    id: task._id,
-    title: task.title,
-    priority: task.priority?.toUpperCase() || 'LOW',
-    due: task.estimatedTime,
-    done: task.status === 'done',
-    sub: task.assignedMember?.name || 'Unassigned',
-  }))
-)
-
-async function toggleTask(id) {
-  const task = taskStore.tasks.find(t => t._id === id)
-
-  if (!task) return
-
-  const newStatus = task.status === 'done' ? 'todo' : 'done'
+async function copyInviteCode() {
+  if (!inviteCode.value) return
 
   try {
-    await taskStore.updateStatus(id, newStatus)
+    await navigator.clipboard.writeText(inviteCode.value)
+  } catch (err) {
+    console.error('Failed to copy invite code', err)
+  }
+}
+
+async function toggleTask(id) {
+  const task = taskStore.tasks.find((item) => item._id === id)
+  if (!task) return
+
+  try {
+    await taskStore.updateStatus(id, task.status === 'done' ? 'todo' : 'done')
   } catch (err) {
     console.error(err)
   }
 }
-
-const priorityClass = {
-  HIGH: 'bg-red-50 text-red-500',
-  MED: 'bg-amber-50 text-amber-500',
-  LOW: 'bg-slate-100 text-slate-400',
-}
-
-const roadmap = computed(() =>
-  aiStore.roadmap.map((item, index) => ({
-    title: item.title,
-    status: item.phase,
-    progress: (index + 1) * 20,
-    color: 'bg-primary',
-  }))
-)
 </script>
 
 <template>
@@ -110,351 +163,318 @@ const roadmap = computed(() =>
     :user="topbarUser"
     @navigate="handleNavigate"
   >
-    <!-- Page Header -->
-    <div>
-  <p class="text-sm font-semibold text-primary">
-    Welcome back, {{ topbarUser.fullName }}
-  </p>
+    <div class="space-y-6">
+      <header class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div class="max-w-3xl">
+          <p class="text-sm font-semibold text-primary">
+            Welcome back, {{ topbarUser.fullName }}
+          </p>
+          <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+            Mission Command Center
+          </h1>
+          <p class="mt-2 text-sm leading-6 text-slate-500">
+            {{ aiStore.overview }}
+          </p>
+        </div>
 
-  <h1 class="text-[38px] font-black text-slate-900 mt-1">
-    Mission Command Center
-  </h1>
+        <div class="flex flex-wrap gap-2">
+          <button class="sp-btn-outline text-xs" @click="handleNavigate('projects')">
+            Projects
+          </button>
+          <button class="sp-btn-primary text-xs" @click="handleNavigate('tasks')">
+            View Tasks
+          </button>
+        </div>
+      </header>
 
-  <p class="text-sm text-slate-500 mt-1">
-    Monitor your startup performance, roadmap and AI recommendations.
-  </p>
-</div>
-<br>
-
-    <!-- Stat Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <div
-        v-for="(stat, i) in mockManagerStats"
-        :key="stat.label"
-        class="sp-card p-5"
-        :class="i === 0 ? 'border-primary/30' : ''"
+      <section
+        v-if="inviteCode"
+        class="sp-card overflow-hidden border-primary/20 bg-white"
       >
-        <div class="flex items-start justify-between mb-1">
-          <p class="text-xs font-semibold text-slate-500">{{ stat.label }}</p>
-          <!-- mini icon per card -->
-          <div class="w-7 h-7 rounded-lg flex items-center justify-center"
-            :class="i === 0 ? 'bg-primary-light' : i === 1 ? 'bg-red-50' : i === 2 ? 'bg-violet-50' : 'bg-orange-50'">
-            <svg class="w-3.5 h-3.5" :class="i === 0 ? 'text-primary' : i === 1 ? 'text-red-500' : i === 2 ? 'text-violet-500' : 'text-orange-500'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path v-if="i===0" stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              <path v-else-if="i===1" stroke-linecap="round" stroke-linejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-              <path v-else-if="i===2" stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-              <path v-else stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-            </svg>
-          </div>
-        </div>
-        <p class="text-2xl font-black text-slate-900 mt-2">{{ stat.value }}</p>
-        <div v-if="i === 0" class="w-full bg-slate-100 h-1.5 rounded-full mt-2 mb-1">
-          <div class="h-full rounded-full bg-primary" style="width: 88%"></div>
-        </div>
-        <div v-if="i === 3" class="w-full bg-slate-100 h-1.5 rounded-full mt-2 mb-1">
-          <div class="h-full rounded-full bg-orange-400" style="width: 35%"></div>
-        </div>
-        <div class="flex items-center gap-1 mt-1">
-          <span class="text-xs font-semibold" :class="stat.positive ? 'text-emerald-500' : 'text-red-400'">{{ stat.delta }}</span>
-          <span class="text-[10px] text-slate-400">{{ stat.sub }}</span>
-        </div>
-      </div>
-    </div>
-
-<!-- Venture Roadmap -->
-<div class="sp-card p-6 mb-6">
-
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <h3 class="text-lg font-bold text-slate-900">
-        Venture Roadmap
-      </h3>
-
-      <p class="text-sm text-slate-400">
-        AI generated execution roadmap
-      </p>
-    </div>
-
-    <button class="sp-btn-outline text-xs">
-      View Roadmap
-    </button>
-  </div>
-
-  <div class="space-y-5">
-
-    <div
-      v-for="item in roadmap"
-      :key="item.title"
-    >
-
-      <div class="flex justify-between mb-2">
-
-        <div>
-          <p class="font-semibold text-slate-800">
-            {{ item.title }}
-          </p>
-
-          <p class="text-xs text-slate-400">
-            {{ item.status }}
-          </p>
-        </div>
-
-        <span class="text-sm font-bold text-primary">
-          {{ item.progress }}%
-        </span>
-
-      </div>
-
-      <div class="w-full h-2 rounded-full bg-slate-100">
-        <div
-          class="h-2 rounded-full transition-all"
-          :class="item.color"
-          :style="{ width: item.progress + '%' }"
-        ></div>
-      </div>
-
-    </div>
-
-  </div>
-
-</div>
-
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-
-  <!-- Founder Intelligence -->
-  <div class="sp-card p-6">
-
-    <div class="flex items-center justify-between mb-5">
-      <div>
-        <h3 class="font-bold text-slate-900">
-          Founder Intelligence
-        </h3>
-
-        <p class="text-xs text-slate-400 mt-1">
-          AI insights for your startup
-        </p>
-      </div>
-
-      <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-600 text-xs font-semibold">
-        Healthy
-      </span>
-    </div>
-
-    <div class="space-y-4">
-
-      <div class="flex justify-between items-center">
-        <span class="text-sm text-slate-600">
-          Investor Readiness
-        </span>
-
-        <span class="font-bold text-primary">
-          92%
-        </span>
-      </div>
-
-      <div class="w-full h-2 bg-slate-100 rounded-full">
-        <div class="w-[92%] h-full rounded-full bg-primary"></div>
-      </div>
-
-      <div class="flex justify-between items-center">
-        <span class="text-sm text-slate-600">
-          Team Productivity
-        </span>
-
-        <span class="font-bold text-primary">
-          81%
-        </span>
-      </div>
-
-      <div class="w-full h-2 bg-slate-100 rounded-full">
-        <div class="w-[81%] h-full rounded-full bg-violet-500"></div>
-      </div>
-
-      <div class="flex justify-between items-center">
-        <span class="text-sm text-slate-600">
-          Market Validation
-        </span>
-
-        <span class="font-bold text-primary">
-          74%
-        </span>
-      </div>
-
-      <div class="w-full h-2 bg-slate-100 rounded-full">
-        <div class="w-[74%] h-full rounded-full bg-emerald-500"></div>
-      </div>
-
-    </div>
-
-  </div>
-
-  <!-- Upcoming Deadlines -->
-
-  <div class="sp-card p-6">
-
-    <div class="mb-5">
-      <h3 class="font-bold text-slate-900">
-        Upcoming Deadlines
-      </h3>
-
-      <p class="text-xs text-slate-400 mt-1">
-        Important milestones
-      </p>
-    </div>
-
-    <div class="space-y-4">
-
-      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
-        <div>
-          <p class="font-medium text-slate-800">
-            MVP Release
-          </p>
-
-          <p class="text-xs text-slate-400">
-            June 28
-          </p>
-        </div>
-
-        <span class="text-red-500 text-xs font-semibold">
-          2 days left
-        </span>
-      </div>
-
-      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
-        <div>
-          <p class="font-medium text-slate-800">
-            Investor Pitch
-          </p>
-
-          <p class="text-xs text-slate-400">
-            July 3
-          </p>
-        </div>
-
-        <span class="text-amber-500 text-xs font-semibold">
-          1 week
-        </span>
-      </div>
-
-      <div class="flex justify-between items-center">
-        <div>
-          <p class="font-medium text-slate-800">
-            Beta Launch
-          </p>
-
-          <p class="text-xs text-slate-400">
-            July 15
-          </p>
-        </div>
-
-        <span class="text-primary text-xs font-semibold">
-          Planned
-        </span>
-      </div>
-
-    </div>
-
-  </div>
-
-</div>
-   
-
-    <!-- Revenue Forecast + Active Tasks -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-
-      <!-- Revenue Chart -->
-      <div class="lg:col-span-2 sp-card p-6">
-        <div class="flex items-center justify-between mb-5">
-          <div>
-            <h3 class="font-bold text-slate-900">Revenue Forecast</h3>
-            <p class="text-xs text-slate-400 mt-0.5">Projected growth for the next 6 months</p>
-          </div>
-          <div class="flex border border-[#e4e4f0] rounded-xl overflow-hidden">
-            <button
-              v-for="mode in ['Forecast', 'Historical']"
-              :key="mode"
-              @click="forecastMode = mode"
-              class="px-4 py-2 text-xs font-semibold transition-colors"
-              :class="forecastMode === mode ? 'bg-primary text-white' : 'text-slate-500 hover:bg-slate-50'"
-            >{{ mode }}</button>
-          </div>
-        </div>
-
-        <!-- Bar chart -->
-        <div class="flex items-end gap-1.5 h-40 mb-2">
-          <div
-            v-for="(h, i) in mockRevenueChart"
-            :key="i"
-            class="flex-1 rounded-t-md transition-all duration-300 cursor-pointer hover:opacity-80 relative group"
-            :class="i === 7 ? 'bg-gradient-to-t from-primary to-violet-400' : 'bg-primary-light hover:bg-primary/20'"
-            :style="`height: ${h}%`"
-          >
-            <div v-if="i === 7" class="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap">Apr (Exp)</div>
-          </div>
-        </div>
-        <div class="flex justify-between text-[10px] text-slate-400 font-mono">
-          <span v-for="m in ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']" :key="m">{{ m }}</span>
-        </div>
-      </div>
-
-      <!-- Active Tasks -->
-      <div class="sp-card p-6">
-        <div class="flex items-center justify-between mb-5">
-          <h3 class="font-bold text-slate-900">Active Tasks</h3>
-          <!-- <button class="text-xs font-semibold text-primary hover:underline"><a href="ManagerTasksView.vue">View all</a></button> -->
-        </div>
-        <div class="space-y-3">
-          <div
-            v-for="task in tasks"
-            :key="task.id"
-            class="flex items-start gap-3 cursor-pointer group"
-            @click="toggleTask(task.id)"
-          >
-            <div
-              class="w-4 h-4 rounded border-2 border-slate-200 mt-0.5 shrink-0 flex items-center justify-center transition-colors"
-              :class="task.done ? 'bg-emerald-500 border-emerald-500' : 'group-hover:border-primary'"
-            >
-              <svg v-if="task.done" class="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-semibold text-slate-800 leading-snug" :class="task.done ? 'line-through text-slate-400' : ''">{{ task.title }}</p>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md" :class="priorityClass[task.priority] || 'bg-slate-100 text-slate-500'">{{ task.priority }}</span>
-                <span class="text-[10px] text-slate-400">{{ task.due }}</span>
-                <span v-if="task.sub" class="text-[10px] text-slate-400">· {{ task.sub }}</span>
+        <div class="grid grid-cols-1 gap-4 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div class="min-w-0">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <p class="text-xs font-black uppercase tracking-wide text-slate-400">
+                  Team invite code
+                </p>
+                <h2 class="mt-1 text-lg font-black text-slate-900">
+                  Share this with employees to join your workspace.
+                </h2>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- AI Advisory Banner -->
-    <div v-if="!dismissedAdvisory" class="sp-card p-5 flex items-start gap-4">
-      <div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shrink-0">
-        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.674M12 3v1m6.364.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707M8 17a4 4 0 118 0c0 1.5-1 2-1 3H9c0-1-1-1.5-1-3z" />
-        </svg>
-      </div>
-      <div class="flex-1 min-w-0">
-        <p class="font-bold text-slate-900 text-sm">
-  AI Business Overview
-</p>
-        <p class="text-sm text-slate-500 mt-1 leading-relaxed">{{ aiStore.overview }}</p>
-        <div class="flex gap-3 mt-4">
-          <button class="sp-btn-primary text-xs py-2 px-4">Re-calculate now</button>
-          <button class="sp-btn-outline text-xs py-2 px-4" @click="dismissedAdvisory = true">Dismiss</button>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-lg font-black tracking-wider text-slate-900">
+              {{ inviteCode }}
+            </div>
+            <button class="sp-btn-primary justify-center text-sm" @click="copyInviteCode">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16h8M8 12h8m-6 8h8a2 2 0 002-2V7.414a2 2 0 00-.586-1.414l-3.414-3.414A2 2 0 0014.586 2H10a2 2 0 00-2 2v2M6 8H4a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+              </svg>
+              Copy
+            </button>
+          </div>
         </div>
-      </div>
-      <button class="sp-btn-ghost p-1.5 shrink-0" @click="dismissedAdvisory = true">
-        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
+      </section>
 
-     
+      <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div
+          v-for="stat in dashboardStats"
+          :key="stat.label"
+          class="sp-card min-w-0 p-5"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-xs font-bold uppercase tracking-wide text-slate-400">
+                {{ stat.label }}
+              </p>
+              <p class="mt-2 break-words text-2xl font-black leading-tight text-slate-900">
+                {{ stat.value }}
+              </p>
+            </div>
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
+              :class="statToneClass[stat.tone]"
+            >
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <p class="mt-3 text-xs font-medium text-slate-500">
+            {{ stat.detail }}
+          </p>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
+        <div class="sp-card overflow-hidden">
+          <div class="border-b border-slate-100 p-5 sm:p-6">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 class="text-xl font-black text-slate-900">
+                  AI Venture Roadmap
+                </h2>
+                <p class="mt-1 text-sm text-slate-500">
+                  {{ aiStore.roadmap.length }} ordered milestones across {{ groupedRoadmap.length }} phases.
+                </p>
+              </div>
+              <span class="w-fit rounded-full bg-primary-light px-3 py-1 text-xs font-bold text-primary">
+                Execution plan
+              </span>
+            </div>
+          </div>
+
+          <div class="divide-y divide-slate-100">
+            <section
+              v-for="group in groupedRoadmap"
+              :key="group.phase"
+              class="p-5 sm:p-6"
+            >
+              <div class="mb-5 flex items-center gap-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">
+                  {{ group.order }}
+                </div>
+                <div class="min-w-0">
+                  <h3 class="font-black text-slate-900">
+                    {{ group.phase }}
+                  </h3>
+                  <p class="text-xs text-slate-400">
+                    {{ group.items.length }} milestones
+                  </p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <article
+                  v-for="item in group.items"
+                  :key="`${item.order}-${item.title}`"
+                  class="rounded-lg border border-slate-100 bg-white p-4 transition-colors hover:border-primary/30"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <p class="text-xs font-black text-primary">
+                      Step {{ item.order }}
+                    </p>
+                    <span class="shrink-0 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-500">
+                      {{ item.estimatedDuration || 'TBD' }}
+                    </span>
+                  </div>
+                  <h4 class="mt-2 text-sm font-black leading-snug text-slate-900">
+                    {{ item.title }}
+                  </h4>
+                  <p class="mt-2 text-sm leading-6 text-slate-500">
+                    {{ item.description }}
+                  </p>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <aside class="space-y-6">
+          <div class="sp-card p-5 sm:p-6">
+            <h3 class="font-black text-slate-900">
+              Financial Strategy
+            </h3>
+            <p class="mt-3 text-sm leading-6 text-slate-500">
+              {{ financialPlan.summary || 'No financial summary available yet.' }}
+            </p>
+
+            <div class="mt-5 grid grid-cols-1 gap-3">
+              <div class="rounded-lg bg-slate-50 p-4">
+                <p class="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Conservative
+                </p>
+                <p class="mt-1 text-xl font-black text-slate-900">
+                  {{ formatCurrency(expectedRevenue.conservative) }}
+                </p>
+              </div>
+              <div class="rounded-lg bg-primary-light p-4">
+                <p class="text-xs font-bold uppercase tracking-wide text-primary">
+                  Target
+                </p>
+                <p class="mt-1 text-xl font-black text-slate-900">
+                  {{ formatCurrency(expectedRevenue.target) }}
+                </p>
+              </div>
+              <div class="rounded-lg bg-emerald-50 p-4">
+                <p class="text-xs font-bold uppercase tracking-wide text-emerald-600">
+                  Aggressive
+                </p>
+                <p class="mt-1 text-xl font-black text-slate-900">
+                  {{ formatCurrency(expectedRevenue.aggressive) }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="sp-card p-5 sm:p-6">
+            <h3 class="font-black text-slate-900">
+              Funding Advice
+            </h3>
+            <p class="mt-3 text-sm leading-6 text-slate-500">
+              {{ financialPlan.fundingAdvice || 'Funding advice will appear after AI planning.' }}
+            </p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div class="sp-card p-5 sm:p-6">
+          <h3 class="font-black text-slate-900">
+            Main Costs
+          </h3>
+          <ul class="mt-4 space-y-3">
+            <li
+              v-for="cost in financialPlan.mainCosts || []"
+              :key="cost"
+              class="flex gap-3 text-sm leading-5 text-slate-600"
+            >
+              <span class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"></span>
+              <span>{{ cost }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="sp-card p-5 sm:p-6">
+          <h3 class="font-black text-slate-900">
+            Risk Watch
+          </h3>
+          <ul class="mt-4 space-y-3">
+            <li
+              v-for="risk in financialPlan.risks || []"
+              :key="risk"
+              class="flex gap-3 text-sm leading-5 text-slate-600"
+            >
+              <span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-amber-400"></span>
+              <span>{{ risk }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="sp-card p-5 sm:p-6">
+          <div class="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h3 class="font-black text-slate-900">
+                Active Tasks
+              </h3>
+              <p class="mt-1 text-xs text-slate-400">
+                Latest assigned execution work
+              </p>
+            </div>
+            <button class="text-xs font-bold text-primary hover:underline" @click="handleNavigate('tasks')">
+              View all
+            </button>
+          </div>
+
+          <div v-if="activeTasks.length" class="space-y-3">
+            <button
+              v-for="task in activeTasks"
+              :key="task.id"
+              class="flex w-full items-start gap-3 rounded-lg border border-slate-100 p-3 text-left transition-colors hover:border-primary/30"
+              @click="toggleTask(task.id)"
+            >
+              <span
+                class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 border-slate-200"
+                :class="task.done ? 'border-emerald-500 bg-emerald-500' : ''"
+              >
+                <svg v-if="task.done" class="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-bold leading-snug text-slate-800" :class="task.done ? 'text-slate-400 line-through' : ''">
+                  {{ task.title }}
+                </span>
+                <span class="mt-2 flex flex-wrap items-center gap-2">
+                  <span class="rounded-md px-1.5 py-0.5 text-[10px] font-black" :class="priorityClass[task.priority] || priorityClass.LOW">
+                    {{ task.priority }}
+                  </span>
+                  <span class="text-[11px] text-slate-400">
+                    {{ task.due }}
+                  </span>
+                  <span class="text-[11px] text-slate-400">
+                    {{ task.sub }}
+                  </span>
+                </span>
+              </span>
+            </button>
+          </div>
+
+          <p v-else class="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">
+            No active tasks loaded yet.
+          </p>
+        </div>
+      </section>
+
+      <section
+        v-if="!dismissedAdvisory"
+        class="sp-card flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:p-6"
+      >
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary">
+          <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.674M12 3v1m6.364.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707M8 17a4 4 0 118 0c0 1.5-1 2-1 3H9c0-1-1-1.5-1-3z" />
+          </svg>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="font-black text-slate-900">
+            AI Business Overview
+          </p>
+          <p class="mt-2 text-sm leading-6 text-slate-500">
+            {{ aiStore.overview }}
+          </p>
+        </div>
+        <button class="sp-btn-outline shrink-0 text-xs" @click="dismissedAdvisory = true">
+          Dismiss
+        </button>
+      </section>
+    </div>
   </DashboardLayout>
 </template>

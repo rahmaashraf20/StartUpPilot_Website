@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', {
     user: null,
     accessToken: localStorage.getItem(STORAGE_KEYS.accessToken) || null,
     refreshToken: localStorage.getItem(STORAGE_KEYS.refreshToken) || null,
+    inviteCode: localStorage.getItem(STORAGE_KEYS.inviteCode) || null,
     initialized: false,
     loading: false,
     error: null,
@@ -20,11 +21,28 @@ export const useAuthStore = defineStore('auth', {
   },
 
   actions: {
-    _persistUser(user) {
+    _persistUser(user, inviteCode = undefined) {
       // The Authentication API returns `name`; keep a `fullName` alias so
       // existing UI (e.g. the Topbar greeting) that reads `user.fullName`
       // keeps working without touching those components.
-      this.user = user ? { ...user, fullName: user.fullName || user.name } : user
+      const resolvedInviteCode = arguments.length > 1
+        ? inviteCode || user?.inviteCode || null
+        : user?.inviteCode || this.inviteCode
+
+      this.inviteCode = resolvedInviteCode || null
+      this.user = user
+        ? {
+            ...user,
+            fullName: user.fullName || user.name,
+            ...(resolvedInviteCode ? { inviteCode: resolvedInviteCode } : {}),
+          }
+        : user
+
+      if (this.inviteCode) {
+        localStorage.setItem(STORAGE_KEYS.inviteCode, this.inviteCode)
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.inviteCode)
+      }
       if (this.user) localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(this.user))
     },
 
@@ -35,7 +53,8 @@ export const useAuthStore = defineStore('auth', {
         const data = await authService.register(payload)
         this.accessToken = data.token
         this.refreshToken = data.refreshToken || null
-        this._persistUser(data.user || { email: payload.email, name: payload.name, role: payload.role })
+        this._persistUser(data.user || { email: payload.email, name: payload.name, role: payload.role }, data.user?.inviteCode || data.inviteCode)
+        console.log('Registration successful:', data)
         return data
       } catch (err) {
         this.error = err.message
@@ -50,9 +69,10 @@ export const useAuthStore = defineStore('auth', {
       this.error = null
       try {
         const data = await authService.login(payload)
+        console.log('Login successful:', data)
         this.accessToken = data.token
         this.refreshToken = data.refreshToken || null
-        this._persistUser(data.user || null)
+        this._persistUser(data.user || null, data.user?.inviteCode || data.inviteCode)
         return data
       } catch (err) {
         this.error = err.message
@@ -77,6 +97,7 @@ export const useAuthStore = defineStore('auth', {
       if (storedUser) {
         try { this._persistUser(JSON.parse(storedUser)) } catch { this.user = null }
       }
+      this.inviteCode = localStorage.getItem(STORAGE_KEYS.inviteCode) || this.user?.inviteCode || null
       if (this.accessToken && !this.user) {
         await this.fetchProfile()
       }

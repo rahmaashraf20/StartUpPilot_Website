@@ -1,6 +1,23 @@
 import { http, setTokens, clearTokens } from './http'
 import { ENDPOINTS, STORAGE_KEYS } from './endpoints'
 
+function persistAuthPayload(data) {
+  const inviteCode = data?.user?.inviteCode || data?.inviteCode || null
+
+  if (inviteCode) {
+    localStorage.setItem(STORAGE_KEYS.inviteCode, inviteCode)
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.inviteCode)
+  }
+
+  if (data?.user) {
+    localStorage.setItem(
+      STORAGE_KEYS.user,
+      JSON.stringify(inviteCode ? { ...data.user, inviteCode } : data.user)
+    )
+  }
+}
+
 export const authService = {
   // Single endpoint for both roles — the backend differentiates by `role`.
   // Manager payloads additionally require workspaceName + startupName;
@@ -14,15 +31,16 @@ export const authService = {
     const data = await http.post(ENDPOINTS.auth.register, payload, { auth: false })
     if (data?.token) {
       setTokens({ accessToken: data.token, refreshToken: data.refreshToken })
-      if (data.user) localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data.user))
+      persistAuthPayload(data)
     }
     return data
   },
 
   async login({ email, password }) {
     const data = await http.post(ENDPOINTS.auth.login, { email, password }, { auth: false })
+
     setTokens({ accessToken: data.token, refreshToken: data.refreshToken })
-    if (data.user) localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(data.user))
+    persistAuthPayload(data)
     return data
   },
 

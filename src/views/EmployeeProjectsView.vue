@@ -1,98 +1,231 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
+import { taskService } from '../services/taskService'
+import {
+  calculateProgress,
+  compareByDueDate,
+  extractWorkspaceProject,
+  formatShortDate,
+  formatTaskDate,
+  mapApiTask,
+} from '../utils/workspaceProject'
 import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
 import StatCard from '../components/dashboard/StatCard.vue'
-import ProjectCard from '../components/dashboard/ProjectCard.vue'
 import SkeletonBlock from '../components/dashboard/SkeletonBlock.vue'
-import { mockProjects } from '../data/mockProjects'
 
-// Tracks which sidebar section is active on this page (mirrors the pattern
-// used in EmployeeDashboardView / EmployeeTasksView so DashboardLayout's
-// @navigate is handled consistently everywhere it's used).
+const auth = useAuthStore()
+const router = useRouter()
+
 const activeSection = ref('projects')
 function handleNavigate(id) {
   activeSection.value = id
 }
 
-// ── Loading (prototype mode skeleton) ─────────────────────────────
 const isLoading = ref(true)
-onMounted(() => setTimeout(() => { isLoading.value = false }, 500))
+const loadError = ref('')
+const currentProject = ref(null)
+const projectId = ref('')
+const tasks = ref([])
 
-// ── Local project state ────────────────────────────────────────────
-const projects = ref(mockProjects.map((p) => ({ ...p, team: p.team.map((m) => ({ ...m })) })))
+onMounted(async () => {
+  try {
+    loadError.value = ''
+    const workspaceId = auth.user?.workspaceId
 
-// ── Filters / Search / Sort ──────────────────────────────────────
-const FILTERS = ['All', 'Active', 'Completed', 'At Risk']
-const SORTS = ['Progress', 'Name', 'Due Date']
-const STATUS_KEY = { 'Active': 'active', 'Completed': 'completed', 'At Risk': 'at-risk' }
+    if (!workspaceId) {
+      throw new Error('No workspace is linked to this employee account yet.')
+    }
 
-const activeFilter = ref('All')
-const activeSort = ref('Progress')
-const searchQuery = ref('')
+    const workspaceProjectResponse = await taskService.getProjectsByWorkspace(workspaceId)
+    const extracted = extractWorkspaceProject(workspaceProjectResponse)
+    currentProject.value = extracted.project
+    projectId.value = extracted.projectId
 
-const filtered = computed(() => {
-  let list = projects.value
+    if (!projectId.value) {
+      throw new Error('No project id was returned for this workspace.')
+    }
 
-  // Filter
-  const f = activeFilter.value
-  if (f !== 'All') list = list.filter((p) => p.status === STATUS_KEY[f])
+    localStorage.setItem('projectId', projectId.value)
 
-  // Search
-  const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.owner.toLowerCase().includes(q),
-    )
+    const response = await taskService.getProjectTasks(projectId.value)
+    tasks.value = (response.tasks || []).map((task) => mapApiTask(task, currentProject.value))
+  } catch (error) {
+    console.error(error)
+    loadError.value = error.message || 'Failed to load your project.'
+  } finally {
+    isLoading.value = false
   }
-
-  // Sort
-  const s = activeSort.value
-  if (s === 'Progress') list = [...list].sort((a, b) => b.progress - a.progress)
-  else if (s === 'Name') list = [...list].sort((a, b) => a.name.localeCompare(b.name))
-  else if (s === 'Due Date') list = [...list].sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-
-  return list
 })
 
-// ── Stats ─────────────────────────────────────────────────────────
-const stats = computed(() => [
-  { id: 'total', label: 'Total Projects', value: projects.value.length, icon: 'tasks', tone: 'primary' },
-  { id: 'active', label: 'Active', value: projects.value.filter((p) => p.status === 'active').length, icon: 'messages', tone: 'violet' },
-  { id: 'completed', label: 'Completed', value: projects.value.filter((p) => p.status === 'completed').length, icon: 'bell', tone: 'primary' },
-  { id: 'at-risk', label: 'At Risk', value: projects.value.filter((p) => p.status === 'at-risk').length, icon: 'calendar', tone: 'amber' },
+const completedTasks = computed(() =>
+  tasks.value.filter((task) => task.done || task.status === 'done').length
+)
+
+const progress = computed(() => calculateProgress(tasks.value))
+
+const projectInfo = computed(() => {
+  const project = currentProject.value || {}
+  const basicInfo = project.basicInfo || {}
+  const marketInfo = project.marketInfo || {}
+  const financialInfo = project.financialInfo || {}
+  const roadmap = project.aiOutputs?.roadmap || []
+
+  return {
+    name: basicInfo.name || 'Workspace Project',
+    industry: basicInfo.industry || 'Workspace',
+    description: basicInfo.description || project.aiOutputs?.overview || 'Project details will appear here.',
+    stage: basicInfo.stage || 'Active',
+    businessModel: basicInfo.businessModel || 'Not specified',
+    location: marketInfo.location || 'Not specified',
+    audience: marketInfo.targetAudience || 'Not specified',
+    startupCost: financialInfo.initialInvestment || project.aiOutputs?.financialPlan?.estimatedStartupCost || 0,
+    monthlyBurn: project.aiOutputs?.financialPlan?.monthlyBurnRate || 0,
+    roadmapCount: roadmap.length,
+    createdAt: formatTaskDate(project.createdAt, 'Unknown'),
+    managerName: project.managerId?.name || 'Manager',
+    managerEmail: project.managerId?.email || '',
+  }
+})
+
+const upcomingTasks = computed(() =>
+  [...tasks.value]
+    .filter((task) => task.status !== 'done')
+    .sort(compareByDueDate)
+    .slice(0, 4)
+)
+
+const statusBreakdown = computed(() => [
+  { label: 'Todo', value: tasks.value.filter((task) => task.status === 'todo').length, color: 'bg-slate-400' },
+  { label: 'In progress', value: tasks.value.filter((task) => task.status === 'in-progress').length, color: 'bg-primary' },
+  { label: 'Review', value: tasks.value.filter((task) => task.status === 'review').length, color: 'bg-amber-400' },
+  { label: 'Done', value: completedTasks.value, color: 'bg-emerald-500' },
 ])
 
-// ── Empty state helpers ───────────────────────────────────────────
-const noResults = computed(() => !isLoading.value && filtered.value.length === 0)
+const stats = computed(() => [
+  { id: 'progress', label: 'Progress', value: `${progress.value}%`, icon: 'tasks', tone: 'primary' },
+  { id: 'tasks', label: 'Tasks', value: tasks.value.length, icon: 'bell', tone: 'violet' },
+  { id: 'roadmap', label: 'Roadmap Items', value: projectInfo.value.roadmapCount, icon: 'calendar', tone: 'amber' },
+  { id: 'completed', label: 'Completed', value: completedTasks.value, icon: 'messages', tone: 'primary' },
+])
+
+function formatMoney(value) {
+  const amount = Number(value || 0)
+  if (!amount) return 'Not set'
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+function openTasks() {
+  router.push('/dashboard/employee/tasks')
+}
 </script>
 
 <template>
   <DashboardLayout :active-id="activeSection" @navigate="handleNavigate">
-    <div class="space-y-6 animate-fade-in">
-
-      <!-- Page Header -->
-      <div>
-        <h1 class="text-2xl font-black text-slate-900 tracking-tight">My Projects</h1>
-        <p class="text-sm text-slate-500 mt-1">Track progress across every project you're contributing to.</p>
+    <div class="mx-auto w-full max-w-7xl space-y-6 animate-fade-in">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div class="min-w-0">
+          <h1 class="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+            My Project
+          </h1>
+          <p class="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+            View the workspace project details, task progress, and upcoming work.
+          </p>
+        </div>
+        <button type="button" class="sp-btn-primary w-full sm:w-auto" @click="openTasks">
+          View Tasks
+        </button>
       </div>
 
-      <!-- Loading Skeleton -->
       <template v-if="isLoading">
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <SkeletonBlock height="13rem" rounded="1.125rem" />
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <SkeletonBlock v-for="i in 4" :key="i" height="4.5rem" rounded="1.125rem" />
         </div>
-        <SkeletonBlock height="3rem" rounded="1.125rem" />
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <SkeletonBlock v-for="i in 6" :key="i" height="11rem" rounded="1.125rem" />
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <SkeletonBlock height="15rem" rounded="1.125rem" class="lg:col-span-2" />
+          <SkeletonBlock height="15rem" rounded="1.125rem" />
         </div>
       </template>
 
       <template v-else>
-        <!-- Project Stats -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-slide-up">
+        <div
+          v-if="loadError"
+          class="sp-card border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-600"
+        >
+          {{ loadError }}
+        </div>
+
+        <section class="sp-card overflow-hidden">
+          <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_18rem]">
+            <div class="p-5 sm:p-6">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="sp-badge bg-primary-light text-primary capitalize">
+                  {{ projectInfo.industry }}
+                </span>
+                <span class="sp-badge bg-slate-100 text-slate-500 capitalize">
+                  {{ projectInfo.stage }}
+                </span>
+                <span class="sp-badge bg-violet-50 text-violet-600">
+                  {{ projectInfo.businessModel }}
+                </span>
+              </div>
+
+              <h2 class="mt-4 text-2xl font-black leading-tight text-slate-900 sm:text-3xl">
+                {{ projectInfo.name }}
+              </h2>
+              <p class="mt-3 max-w-4xl text-sm leading-6 text-slate-500">
+                {{ projectInfo.description }}
+              </p>
+
+              <div class="mt-6">
+                <div class="mb-2 flex items-center justify-between gap-3">
+                  <span class="text-xs font-black uppercase tracking-wide text-slate-400">
+                    Project progress
+                  </span>
+                  <span class="text-sm font-black text-primary">{{ progress }}%</span>
+                </div>
+                <div class="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    class="h-full rounded-full bg-primary transition-all duration-500"
+                    :style="{ width: `${progress}%` }"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-100 bg-slate-50 p-5 sm:p-6 lg:border-l lg:border-t-0">
+              <p class="text-xs font-black uppercase tracking-wide text-slate-400">
+                Managed by
+              </p>
+              <p class="mt-2 text-sm font-black text-slate-900">
+                {{ projectInfo.managerName }}
+              </p>
+              <p class="mt-1 break-all text-xs text-slate-500">
+                {{ projectInfo.managerEmail || 'No email available' }}
+              </p>
+
+              <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-1">
+                <div class="rounded-lg bg-white p-3">
+                  <p class="text-[10px] font-black uppercase tracking-wide text-slate-400">Created</p>
+                  <p class="mt-1 text-sm font-bold text-slate-800">{{ projectInfo.createdAt }}</p>
+                </div>
+                <div class="rounded-lg bg-white p-3">
+                  <p class="text-[10px] font-black uppercase tracking-wide text-slate-400">Location</p>
+                  <p class="mt-1 text-sm font-bold text-slate-800">{{ projectInfo.location }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="grid grid-cols-1 gap-4 animate-slide-up sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             v-for="stat in stats"
             :key="stat.id"
@@ -103,163 +236,81 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
           />
         </div>
 
-       <!-- Search + Sort -->
-<div class="animate-slide-up" style="animation-delay: 60ms">
-
-  <div class="flex items-center justify-between gap-4 flex-wrap">
-
-    <!-- Search -->
-    <div class="relative w-full lg:max-w-3xl">
-      <svg
-        class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-        />
-      </svg>
-
-      <input
-        v-model="searchQuery"
-        type="search"
-        placeholder="Search projects by name, owner, or description..."
-        class="w-full h-11 rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
-      />
-    </div>
-
-   <!-- Sort -->
-<div class="flex items-center gap-2 shrink-0">
-  <svg
-    class="w-4 h-4 text-slate-400"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    stroke-width="2"
-  >
-    <path
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
-    />
-  </svg>
-
-  <div class="relative">
-    <select
-      v-model="activeSort"
-      class="appearance-none h-11 rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-600 shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
-      aria-label="Sort projects"
-    >
-      <option v-for="s in SORTS" :key="s">
-        {{ s }}
-      </option>
-    </select>
-
-    <svg
-      class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      stroke-width="2"
-    >
-      <path
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        d="M19 9l-7 7-7-7"
-      />
-    </svg>
-  </div>
-</div>
-
-  </div>
-
-  <!-- Filters -->
-  <div
-    class="mt-4 flex items-center gap-2 flex-wrap"
-    role="group"
-    aria-label="Filter projects"
-  >
-    <button
-      v-for="f in FILTERS"
-      :key="f"
-      type="button"
-      class="px-4 py-2 rounded-xl text-sm font-semibold transition-all border"
-      :class="activeFilter === f
-        ? 'bg-primary text-white border-primary shadow-sm'
-        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'"
-      @click="activeFilter = f"
-    >
-      {{ f }}
-
-      <span
-        v-if="f !== 'All'"
-        class="ml-1 opacity-70"
-      >
-        {{ projects.filter(p => p.status === STATUS_KEY[f]).length }}
-      </span>
-    </button>
-  </div>
-
-</div>
-
-        <!-- Project Grid -->
-        <div class="animate-slide-up" style="animation-delay: 100ms">
-
-          <!-- Empty: no search results -->
-          <div
-            v-if="noResults && searchQuery"
-            class="sp-card p-10 flex flex-col items-center text-center"
-          >
-            <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-              <svg class="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <section class="sp-card p-5 sm:p-6 lg:col-span-2">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 class="font-bold text-slate-900">Upcoming Work</h3>
+                <p class="mt-0.5 text-xs text-slate-400">Nearest pending tasks from this project.</p>
+              </div>
+              <button type="button" class="sp-btn-ghost w-full text-xs sm:w-auto" @click="openTasks">
+                Open Tasks
+              </button>
             </div>
-            <p class="text-sm font-bold text-slate-700">No projects match "{{ searchQuery }}"</p>
-            <p class="text-xs text-slate-400 mt-1">Try a different keyword or clear the search.</p>
-            <button type="button" class="sp-btn-ghost text-xs mt-4" @click="searchQuery = ''">Clear search</button>
-          </div>
 
-          <!-- Empty: filter with no results -->
-          <div
-            v-else-if="noResults && activeFilter === 'Completed'"
-            class="sp-card p-10 flex flex-col items-center text-center"
-          >
-            <div class="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
-              <svg class="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+            <div v-if="upcomingTasks.length === 0" class="py-10 text-center">
+              <p class="text-sm font-semibold text-slate-700">No pending tasks</p>
+              <p class="mt-1 text-xs text-slate-400">Everything assigned to you is complete.</p>
             </div>
-            <p class="text-sm font-bold text-slate-700">No completed projects yet</p>
-            <p class="text-xs text-slate-400 mt-1">Finish a project and it'll show up here.</p>
-          </div>
 
-          <div
-            v-else-if="noResults"
-            class="sp-card p-10 flex flex-col items-center text-center"
-          >
-            <div class="w-14 h-14 rounded-2xl bg-primary-light flex items-center justify-center mb-4">
-              <svg class="w-7 h-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
+            <div v-else class="mt-5 divide-y divide-slate-100">
+              <div
+                v-for="task in upcomingTasks"
+                :key="task.id"
+                class="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div class="min-w-0">
+                  <p class="text-sm font-bold text-slate-900">{{ task.title }}</p>
+                  <p class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{{ task.description }}</p>
+                </div>
+                <div class="flex shrink-0 flex-wrap items-center gap-2">
+                  <span class="sp-badge bg-slate-100 text-slate-500">{{ task.priority }}</span>
+                  <span class="sp-badge bg-primary-light text-primary">{{ formatShortDate(task.dueTimestamp) }}</span>
+                </div>
+              </div>
             </div>
-            <p class="text-sm font-bold text-slate-700">No projects here</p>
-            <p class="text-xs text-slate-400 mt-1">Switch filters to see more projects.</p>
-          </div>
+          </section>
 
-          <!-- Project cards -->
-          <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <ProjectCard
-              v-for="(project, idx) in filtered"
-              :key="project.id"
-              :project="project"
-              :style="{ animationDelay: `${idx * 50}ms` }"
-            />
-          </div>
+          <aside class="space-y-5">
+            <section class="sp-card p-5 sm:p-6">
+              <h3 class="font-bold text-slate-900">Task Status</h3>
+              <div class="mt-5 space-y-4">
+                <div v-for="item in statusBreakdown" :key="item.label">
+                  <div class="mb-1.5 flex items-center justify-between">
+                    <span class="text-xs font-semibold text-slate-500">{{ item.label }}</span>
+                    <span class="text-xs font-black text-slate-800">{{ item.value }}</span>
+                  </div>
+                  <div class="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      class="h-full rounded-full"
+                      :class="item.color"
+                      :style="{ width: tasks.length ? `${Math.round((item.value / tasks.length) * 100)}%` : '0%' }"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="sp-card p-5 sm:p-6">
+              <h3 class="font-bold text-slate-900">Project Details</h3>
+              <dl class="mt-4 space-y-3 text-sm">
+                <div>
+                  <dt class="text-xs font-bold uppercase tracking-wide text-slate-400">Audience</dt>
+                  <dd class="mt-1 text-slate-700">{{ projectInfo.audience }}</dd>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div>
+                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-400">Startup Cost</dt>
+                    <dd class="mt-1 font-bold text-slate-800">{{ formatMoney(projectInfo.startupCost) }}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-bold uppercase tracking-wide text-slate-400">Monthly Burn</dt>
+                    <dd class="mt-1 font-bold text-slate-800">{{ formatMoney(projectInfo.monthlyBurn) }}</dd>
+                  </div>
+                </div>
+              </dl>
+            </section>
+          </aside>
         </div>
       </template>
     </div>

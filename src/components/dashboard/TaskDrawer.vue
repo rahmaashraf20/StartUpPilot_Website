@@ -6,15 +6,13 @@ const props = defineProps({
   open: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'complete', 'reopen', 'update-status', 'add-comment', 'upload-attachment', 'remove-attachment'])
+const emit = defineEmits(['close', 'update-status', 'add-comment', 'upload-attachment', 'remove-attachment'])
 
 // Local checklist state (no backend)
 const localChecklist = ref([])
 const commentText = ref('')
 
-// Local status state (no backend)
 const localStatus = ref('todo')
-const statusMenuOpen = ref(false)
 
 const STATUS_OPTIONS = [
   { key: 'todo', label: 'Todo' },
@@ -30,7 +28,6 @@ watch(
       localChecklist.value = t.checklist.map((c) => ({ ...c }))
       localStatus.value = t.status
     }
-    statusMenuOpen.value = false
   },
   { immediate: true },
 )
@@ -86,14 +83,8 @@ function toggleCheckItem(id) {
   if (item) item.done = !item.done
 }
 
-function toggleStatusMenu() {
-  statusMenuOpen.value = !statusMenuOpen.value
-}
-
-function setStatus(key) {
-  localStatus.value = key
-  statusMenuOpen.value = false
-  emit('update-status', { id: props.task.id, status: key })
+function submitStatusUpdate() {
+  emit('update-status', { id: props.task.id, status: localStatus.value })
 }
 
 function addComment() {
@@ -132,7 +123,7 @@ function handleRemoveAttachment(attachmentId) {
       :aria-label="`Task details: ${task.title}`"
     >
       <!-- Header -->
-      <div class="flex items-center justify-between px-6 py-4 border-b border-[#e4e4f0] shrink-0">
+      <div class="flex items-center justify-between px-4 py-4 border-b border-[#e4e4f0] shrink-0 sm:px-6">
         <h2 class="font-bold text-slate-900">Task Details</h2>
         <button
           type="button"
@@ -148,7 +139,7 @@ function handleRemoveAttachment(attachmentId) {
 
       <!-- Body (scrollable) -->
       <div class="flex-1 overflow-y-auto">
-        <div class="px-6 py-5 space-y-6">
+        <div class="px-4 py-5 space-y-6 sm:px-6">
 
           <!-- Priority + ID -->
           <div class="flex items-center gap-2 flex-wrap">
@@ -164,7 +155,7 @@ function handleRemoveAttachment(attachmentId) {
           </h3>
 
           <!-- Meta card: due date + assigned by -->
-          <div class="grid grid-cols-2 gap-4 p-4 rounded-xl border border-[#e4e4f0] bg-slate-50/60">
+          <div class="grid grid-cols-1 gap-4 p-4 rounded-xl border border-[#e4e4f0] bg-slate-50/60 sm:grid-cols-2">
             <div>
               <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Due Date</p>
               <div class="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
@@ -373,49 +364,41 @@ function handleRemoveAttachment(attachmentId) {
         </div>
       </div>
 
-      <!-- Action buttons -->
-      <div class="grid grid-cols-2 gap-3 px-6 py-4 border-t border-[#e4e4f0] shrink-0 bg-white">
+      <!-- Status update -->
+      <div class="grid grid-cols-1 gap-3 border-t border-[#e4e4f0] bg-white px-4 py-4 shrink-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-6">
         <div class="relative">
-          <button
-            type="button"
-            class="sp-btn-outline justify-center py-2.5 text-sm w-full"
-            @click="task.done ? emit('reopen', task.id) : toggleStatusMenu()"
+          <select
+            v-model="localStatus"
+            class="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm font-bold text-slate-700 shadow-sm focus:border-primary focus:outline-none focus:ring-4 focus:ring-violet-100"
+            aria-label="Task status"
           >
-            {{ task.done ? 'Reopen Task' : 'Update Status' }}
-          </button>
-
-          <Transition name="fade-overlay">
-            <div
-              v-if="statusMenuOpen && !task.done"
-              class="absolute bottom-full left-0 mb-2 w-full rounded-xl border border-[#e4e4f0] bg-white shadow-elevated overflow-hidden z-10"
+            <option
+              v-for="opt in STATUS_OPTIONS"
+              :key="opt.key"
+              :value="opt.key"
             >
-              <button
-                v-for="opt in STATUS_OPTIONS"
-                :key="opt.key"
-                type="button"
-                class="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 transition-colors flex items-center justify-between"
-                :class="localStatus === opt.key ? 'font-bold text-primary' : 'text-slate-700'"
-                @click="setStatus(opt.key)"
-              >
-                {{ opt.label }}
-                <svg v-if="localStatus === opt.key" class="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </button>
-            </div>
-          </Transition>
+              {{ opt.label }}
+            </option>
+          </select>
+          <svg
+            class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
         <button
           type="button"
-          class="sp-btn-primary justify-center py-2.5 text-sm"
-          :class="task.done ? 'opacity-50 cursor-not-allowed' : ''"
-          :disabled="task.done"
-          @click="emit('complete', task.id)"
+          class="sp-btn-primary justify-center py-2.5 text-sm sm:px-5"
+          @click="submitStatusUpdate"
         >
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          Mark Complete
+          Update Status
         </button>
       </div>
     </aside>

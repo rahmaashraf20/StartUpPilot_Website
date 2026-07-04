@@ -19,7 +19,6 @@ export const managerSidebarSections = [
       { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
       { id: 'projects', label: 'Projects', icon: 'projects' },
       { id: 'tasks', label: 'Tasks', icon: 'tasks' },
-      { id: 'teams', label: 'Teams', icon: 'teams' },
       { id: 'financials', label: 'Financials', icon: 'financials' },
       { id: 'calendar', label: 'Calendar', icon: 'calendar' },
     ],

@@ -31,15 +31,11 @@ export const sidebarNavSections = [
       { id: 'home', label: 'Home', icon: 'projects', to: '/dashboard/employee' },
       { id: 'tasks', label: 'My Tasks', icon: 'tasks', to: '/dashboard/employee/tasks' },
       { id: 'projects', label: 'My Projects', icon: 'files', to: '/dashboard/employee/projects' },
-      { id: 'calendar', label: 'Calendar', icon: 'calendar', to: '/dashboard/employee/calendar' },
-      { id: 'messages', label: 'Messages', icon: 'messages', to: '/dashboard/employee/messages' },
-      { id: 'ai-assistant', label: 'AI Assistant', icon: 'ai', to: '/dashboard/employee/ai-workspace' },
     ],
   },
   {
     title: 'Account',
     items: [
-      { id: 'profile', label: 'Profile', icon: 'profile', to: '/dashboard/employee/profile' },
       { id: 'settings', label: 'Settings', icon: 'settings', to: '/dashboard/employee/settings' },
     ],
   },

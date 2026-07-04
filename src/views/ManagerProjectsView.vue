@@ -2,8 +2,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
+import { useAuthUser } from '../composables/useAuthUser'
 import { useAIStore } from '../stores/ai'
+import { useAuthStore } from '../stores/auth'
 import { useTaskStore } from '../stores/tasks'
+import { taskService } from '../services/taskService'
 import {
   managerSidebarSections,
   managerNotificationsCount,
@@ -11,6 +14,8 @@ import {
 } from '../data/mockManager'
 
 const router = useRouter()
+const topbarUser = useAuthUser(mockManagerUser)
+const auth = useAuthStore()
 const aiStore = useAIStore()
 const taskStore = useTaskStore()
 const activeNav = ref('projects')
@@ -32,6 +37,7 @@ const statusFilter = ref('all')
 const sortBy = ref('newest')
 const openMenuId = ref(null)
 const selectedProject = ref(null)
+const currentProject = ref(null)
 const loading = ref(false)
 const error = ref(null)
 
@@ -60,6 +66,13 @@ function colorForName(name) {
 function formatCurrency(value) {
   if (value == null) return 'Not set'
   return `$${Number(value).toLocaleString()}`
+}
+
+function formatDate(value) {
+  if (!value) return 'Not set'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function inferProjectTitle(overview) {
@@ -102,12 +115,14 @@ function getRiskLevel(tasks, risks) {
 }
 
 const projects = computed(() => {
-  const projectId = localStorage.getItem('projectId')
-  const roadmap = aiStore.roadmap || []
-  const financialPlan = aiStore.financialPlan
+  const project = currentProject.value
+  const projectId = project?._id || localStorage.getItem('projectId')
+  const roadmap = project?.aiOutputs?.roadmap || aiStore.roadmap || []
+  const financialPlan = project?.aiOutputs?.financialPlan || aiStore.financialPlan
   const tasks = taskStore.tasks || []
+  const overview = project?.aiOutputs?.overview || aiStore.overview
 
-  if (!projectId && !roadmap.length && !aiStore.overview) return []
+  if (!projectId && !roadmap.length && !overview) return []
 
   const totalTasks = tasks.length
   const completedTasks = tasks.filter(task => normalizeStatus(task.status) === 'completed').length
@@ -118,16 +133,23 @@ const projects = computed(() => {
 
   return [{
     id: projectId || 'active-project',
-    title: inferProjectTitle(aiStore.overview),
-    category: 'AI SaaS',
+    title: project?.basicInfo?.name || inferProjectTitle(overview),
+    category: project?.basicInfo?.industry || 'Startup',
     categoryColor: 'text-violet-600 bg-violet-50',
     status,
     progress,
     dueDate: roadmap.length ? `${roadmap.length} phases` : 'Roadmap pending',
     dueDays: 99,
     budget: formatCurrency(financialPlan?.estimatedStartupCost),
-    team: getTeamFromTasks(tasks),
-    description: aiStore.overview || financialPlan?.summary || 'AI-generated roadmap and financial plan.',
+    team: [
+      ...(project?.teamMembers || []).map(member => ({
+        name: member.name || member.email || 'Team member',
+        initials: initialsForName(member.name || member.email),
+        color: colorForName(member.name || member.email),
+      })),
+      ...getTeamFromTasks(tasks),
+    ].slice(0, 6),
+    description: project?.basicInfo?.description || overview || financialPlan?.summary || 'AI-generated roadmap and financial plan.',
     phase: roadmap[currentPhaseIndex]?.phase || roadmap[0]?.phase || 'Planning',
     risk,
     milestones: roadmap.map((item, index) => ({
@@ -135,7 +157,7 @@ const projects = computed(() => {
       date: item.estimatedDuration || item.phase,
       done: index < currentPhaseIndex,
     })),
-    aiInsight: aiStore.overview || financialPlan?.summary || 'Generate an AI plan to see project insight.',
+    aiInsight: overview || financialPlan?.summary || 'Generate an AI plan to see project insight.',
     aiRec: financialPlan?.fundingAdvice || financialPlan?.risks?.[0] || 'Keep refining the roadmap as task progress changes.',
     timeline: roadmap.map((item, index) => ({
       label: item.phase || item.title,
@@ -182,6 +204,21 @@ const filteredProjects = computed(() => {
 })
 
 const activeProject = computed(() => selectedProject.value || projects.value[0])
+const projectFinancials = computed(() => currentProject.value?.aiOutputs?.financialPlan || aiStore.financialPlan || {})
+const projectRoadmap = computed(() => currentProject.value?.aiOutputs?.roadmap || aiStore.roadmap || [])
+const projectMeta = computed(() => ({
+  name: currentProject.value?.basicInfo?.name || activeProject.value?.title || 'Workspace Project',
+  description: currentProject.value?.basicInfo?.description || activeProject.value?.description || 'Project details will appear here.',
+  industry: currentProject.value?.basicInfo?.industry || activeProject.value?.category || 'Startup',
+  stage: currentProject.value?.marketInfo?.startupStage || 'planning',
+  model: currentProject.value?.marketInfo?.businessModel || 'startup',
+  manager: currentProject.value?.managerId?.name || topbarUser.value.fullName || 'Manager',
+  createdAt: formatDate(currentProject.value?.createdAt),
+  roadmapCount: projectRoadmap.value.length,
+  teamCount: currentProject.value?.teamMembers?.length || 0,
+  startupCost: formatCurrency(projectFinancials.value?.estimatedStartupCost),
+  monthlyBurn: formatCurrency(projectFinancials.value?.monthlyBurnRate),
+}))
 
 function statusConfig(s) {
   return {
@@ -221,10 +258,10 @@ function closeMenus() { openMenuId.value = null }
 function selectProject(p) { selectedProject.value = p }
 
 onMounted(async () => {
-  const projectId = localStorage.getItem('projectId')
+  const workspaceId = auth.user?.workspaceId
 
-  if (!projectId) {
-    error.value = 'No active project selected.'
+  if (!workspaceId) {
+    error.value = 'No workspace is linked to this manager account.'
     return
   }
 
@@ -232,10 +269,22 @@ onMounted(async () => {
   error.value = null
 
   try {
-    await Promise.all([
-      aiStore.roadmap.length ? Promise.resolve() : aiStore.loadAIOutput(projectId),
-      taskStore.loadTasks(projectId),
-    ])
+    const projectResponse = await taskService.getProjectsByWorkspace(workspaceId)
+    const project = projectResponse.project || projectResponse
+    const projectId = projectResponse.projectId || project?._id
+
+    currentProject.value = project
+    if (projectId) localStorage.setItem('projectId', projectId)
+
+    if (project?.aiOutputs) {
+      aiStore.overview = project.aiOutputs.overview || ''
+      aiStore.roadmap = project.aiOutputs.roadmap || []
+      aiStore.financialPlan = project.aiOutputs.financialPlan || null
+    }
+
+    if (projectId) {
+      await taskStore.loadTasks(projectId)
+    }
   } catch (err) {
     console.error('Failed to load project data', err)
     error.value = err.message
@@ -250,7 +299,7 @@ onMounted(async () => {
     :active-id="activeNav"
     :sidebar-sections="managerSidebarSections"
     :notifications-count="managerNotificationsCount"
-    :user="mockManagerUser"
+    :user="topbarUser"
     @navigate="handleNavigate"
   >
     <!-- Header -->
@@ -370,6 +419,117 @@ onMounted(async () => {
     <div v-else-if="error" class="sp-card p-5 mb-6 text-sm font-semibold text-red-500">
       {{ error }}
     </div>
+
+    <section
+      v-else-if="currentProject"
+      class="sp-card mb-6 overflow-hidden"
+    >
+      <div class="grid grid-cols-1 gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="p-5 sm:p-6">
+          <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div class="min-w-0">
+              <div class="mb-3 flex flex-wrap items-center gap-2">
+                <span class="rounded-full bg-primary-light px-3 py-1 text-xs font-black uppercase tracking-wide text-primary">
+                  {{ projectMeta.industry }}
+                </span>
+                <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold capitalize text-slate-500">
+                  {{ projectMeta.stage }}
+                </span>
+                <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold capitalize text-emerald-600">
+                  {{ projectMeta.model }}
+                </span>
+              </div>
+
+              <h2 class="text-2xl font-black leading-tight text-slate-900 sm:text-3xl">
+                {{ projectMeta.name }}
+              </h2>
+              <p class="mt-3 max-w-4xl text-sm leading-6 text-slate-500">
+                {{ projectMeta.description }}
+              </p>
+            </div>
+
+            <button class="sp-btn-primary shrink-0 text-sm" @click="handleNavigate('tasks')">
+              View Tasks
+            </button>
+          </div>
+
+          <div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="rounded-lg border border-slate-100 bg-slate-50 p-4">
+              <p class="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                Roadmap
+              </p>
+              <p class="mt-1 text-xl font-black text-slate-900">
+                {{ projectMeta.roadmapCount }}
+              </p>
+              <p class="text-xs text-slate-400">
+                milestones
+              </p>
+            </div>
+            <div class="rounded-lg border border-slate-100 bg-slate-50 p-4">
+              <p class="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                Team
+              </p>
+              <p class="mt-1 text-xl font-black text-slate-900">
+                {{ projectMeta.teamCount }}
+              </p>
+              <p class="text-xs text-slate-400">
+                members
+              </p>
+            </div>
+            <div class="rounded-lg border border-violet-100 bg-violet-50 p-4">
+              <p class="text-[10px] font-black uppercase tracking-wide text-violet-600">
+                Startup cost
+              </p>
+              <p class="mt-1 text-xl font-black text-slate-900">
+                {{ projectMeta.startupCost }}
+              </p>
+              <p class="text-xs text-violet-500">
+                estimate
+              </p>
+            </div>
+            <div class="rounded-lg border border-amber-100 bg-amber-50 p-4">
+              <p class="text-[10px] font-black uppercase tracking-wide text-amber-600">
+                Monthly burn
+              </p>
+              <p class="mt-1 text-xl font-black text-slate-900">
+                {{ projectMeta.monthlyBurn }}
+              </p>
+              <p class="text-xs text-amber-600">
+                planned
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <aside class="border-t border-slate-100 bg-slate-50/80 p-5 sm:p-6 xl:border-l xl:border-t-0">
+          <p class="text-xs font-black uppercase tracking-wide text-slate-400">
+            Project owner
+          </p>
+          <div class="mt-3 flex items-center gap-3">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-black text-white" :class="colorForName(projectMeta.manager)">
+              {{ initialsForName(projectMeta.manager) }}
+            </div>
+            <div class="min-w-0">
+              <p class="font-black text-slate-900">
+                {{ projectMeta.manager }}
+              </p>
+              <p class="text-xs text-slate-400">
+                Created {{ projectMeta.createdAt }}
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-5 rounded-xl bg-white p-4">
+            <p class="text-xs font-black uppercase tracking-wide text-slate-400">
+              AI overview
+            </p>
+            <p class="mt-2 line-clamp-5 text-sm leading-6 text-slate-500">
+              {{ currentProject.aiOutputs?.overview || 'AI overview is not available yet.' }}
+            </p>
+          </div>
+        </aside>
+      </div>
+    </section>
 
     <!-- Main Content -->
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-6" @click="closeMenus">

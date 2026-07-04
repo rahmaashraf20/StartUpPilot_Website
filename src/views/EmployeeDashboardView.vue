@@ -2,6 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { taskService } from '../services/taskService'
+import {
+  calculateProgress,
+  compareByDueDate,
+  extractWorkspaceProject,
+  formatShortDate,
+  mapApiTask,
+} from '../utils/workspaceProject'
 import DashboardLayout from '../components/dashboard/DashboardLayout.vue'
 import StatCard from '../components/dashboard/StatCard.vue'
 import AIRecommendationCard from '../components/dashboard/AIRecommendationCard.vue'
@@ -12,12 +20,6 @@ import ActivityFeedCard from '../components/dashboard/ActivityFeedCard.vue'
 import SkeletonBlock from '../components/dashboard/SkeletonBlock.vue'
 import {
   mockEmployeeUser,
-  mockQuickStats,
-  mockTodaysTasks,
-  mockAiRecommendation,
-  mockProjectProgress,
-  mockUpcomingDeadlines,
-  mockRecentActivity,
 } from '../data/mockEmployee'
 
 const auth = useAuthStore()
@@ -48,19 +50,37 @@ const todayLabel = computed(() =>
   new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 )
 
-// --- Prototype Mode: brief simulated load -----------------------------
-// No backend exists yet. This local timeout stands in for a future
-// `GET /me/dashboard-summary` request so the loading-state UI has a real
-// (if momentary) job to do, without any network call.
 const isLoading = ref(true)
-onMounted(() => {
-  setTimeout(() => {
-    isLoading.value = false
-  }, 500)
-})
+const loadError = ref('')
+const currentProject = ref(null)
+const tasks = ref([])
 
-// --- Today's Tasks (local, interactive — no backend) -----------------
-const tasks = ref(mockTodaysTasks.map((t) => ({ ...t })))
+onMounted(async () => {
+  try {
+    loadError.value = ''
+    const workspaceId = auth.user?.workspaceId
+
+    if (!workspaceId) {
+      throw new Error('No workspace is linked to this employee account yet.')
+    }
+
+    const workspaceProjectResponse = await taskService.getProjectsByWorkspace(workspaceId)
+    const { project, projectId } = extractWorkspaceProject(workspaceProjectResponse)
+    currentProject.value = project
+
+    if (!projectId) {
+      throw new Error('No project id was returned for this workspace.')
+    }
+
+    const response = await taskService.getProjectTasks(projectId)
+    tasks.value = (response.tasks || []).map((task) => mapApiTask(task, project))
+  } catch (error) {
+    console.error(error)
+    loadError.value = error.message || 'Failed to load your dashboard.'
+  } finally {
+    isLoading.value = false
+  }
+})
 
 const priorityTaskCount = computed(
   () => tasks.value.filter((t) => !t.done && t.priority === 'High').length
@@ -85,6 +105,92 @@ const priorityHeadline = computed(() => {
     : 'No pending tasks right now'
 })
 
+const sortedPendingTasks = computed(() =>
+  [...tasks.value]
+    .filter((task) => !task.done && task.status !== 'done')
+    .sort((a, b) => {
+      const priorityDelta = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+      return priorityDelta || compareByDueDate(a, b)
+    })
+)
+
+const dashboardTasks = computed(() => sortedPendingTasks.value.slice(0, 5))
+
+const upcomingDeadlines = computed(() =>
+  [...tasks.value]
+    .filter((task) => task.dueTimestamp && task.status !== 'done')
+    .sort(compareByDueDate)
+    .slice(0, 5)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      date: formatShortDate(task.dueTimestamp),
+      project: task.project,
+    }))
+)
+
+const projectProgress = computed(() => {
+  if (!currentProject.value) return []
+
+  return [
+    {
+      id: currentProject.value._id || currentProject.value.id || 'workspace-project',
+      name: currentProject.value.basicInfo?.name || 'Workspace Project',
+      pct: calculateProgress(tasks.value),
+      tasksDone: tasks.value.filter((task) => task.done || task.status === 'done').length,
+      tasksTotal: tasks.value.length,
+      color: 'bg-primary',
+    },
+  ]
+})
+
+const recentActivity = computed(() =>
+  [...tasks.value]
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .slice(0, 4)
+    .map((task) => ({
+      id: task.id,
+      actor: task.assignedBy || 'Manager',
+      action: task.status === 'done' ? 'marked complete' : 'updated',
+      target: task.title,
+      time: formatShortDate(task.updatedAt, 'Recently'),
+      avatarUrl: null,
+    }))
+)
+
+const quickStats = computed(() => [
+  {
+    id: 'assigned-tasks',
+    label: 'Assigned Tasks',
+    value: tasks.value.length,
+    icon: 'tasks',
+    tone: 'primary',
+  },
+  {
+    id: 'due-soon',
+    label: 'Deadlines',
+    value: upcomingDeadlines.value.length,
+    icon: 'calendar',
+    tone: 'amber',
+  },
+  {
+    id: 'in-progress',
+    label: 'In Progress',
+    value: tasks.value.filter((task) => task.status === 'in-progress').length,
+    icon: 'messages',
+    tone: 'violet',
+  },
+  {
+    id: 'completed',
+    label: 'Completed',
+    value: tasks.value.filter((task) => task.done || task.status === 'done').length,
+    icon: 'bell',
+    tone: 'primary',
+  },
+])
+
+const projectName = computed(() => currentProject.value?.basicInfo?.name || 'your workspace')
+
 function handleToggleTask(id) {
   const task = tasks.value.find((t) => t.id === id)
   if (!task) return
@@ -107,7 +213,7 @@ console.log('AI TASK:', aiSuggestedTask.value)
 
 <template>
   <DashboardLayout :active-id="activeSection" @navigate="handleNavigate">
-    <div class="space-y-6 animate-fade-in">
+    <div class="mx-auto w-full max-w-7xl space-y-6 animate-fade-in">
 
       <!-- Greeting -->
       <div>
@@ -116,7 +222,7 @@ console.log('AI TASK:', aiSuggestedTask.value)
           <span class="inline-block animate-wave" style="transform-origin: 70% 70%;">👋</span>
         </h1>
         <p class="text-sm text-slate-500 mt-1.5">
-          {{ todayLabel }} — let's make today productive.
+          {{ todayLabel }} - {{ projectName }}
         </p>
         <p v-if="!isLoading && priorityTaskCount > 0" class="text-sm text-slate-500 mt-0.5">
           You have <span class="font-semibold text-primary">{{ priorityTaskCount }} priority task{{ priorityTaskCount > 1 ? 's' : '' }}</span> waiting today.
@@ -142,10 +248,17 @@ console.log('AI TASK:', aiSuggestedTask.value)
       </template>
 
       <template v-else>
+        <div
+          v-if="loadError"
+          class="sp-card border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-600"
+        >
+          {{ loadError }}
+        </div>
+
         <!-- Quick Stats -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-slide-up">
+        <div class="grid grid-cols-1 gap-4 animate-slide-up sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            v-for="stat in mockQuickStats"
+            v-for="stat in quickStats"
             :key="stat.id"
             :label="stat.label"
             :value="stat.value"
@@ -168,7 +281,10 @@ console.log('AI TASK:', aiSuggestedTask.value)
   @apply="handleApplyRecommendation"
 />
             <TasksCard
-              :tasks="tasks"
+              :tasks="dashboardTasks"
+              title="Priority Tasks"
+              empty-title="No pending tasks"
+              empty-body="Everything assigned to you is complete."
               @toggle-task="handleToggleTask"
               @view-all="handleViewAllTasks"
             />
@@ -176,9 +292,9 @@ console.log('AI TASK:', aiSuggestedTask.value)
 
           <!-- Right rail: project progress, deadlines, activity -->
           <div class="space-y-5 animate-slide-up" style="animation-delay: 140ms">
-            <ProjectProgressCard :projects="mockProjectProgress" />
-            <DeadlinesCard :deadlines="mockUpcomingDeadlines" />
-            <ActivityFeedCard :activity="mockRecentActivity" />
+            <ProjectProgressCard :projects="projectProgress" />
+            <DeadlinesCard :deadlines="upcomingDeadlines" />
+            <ActivityFeedCard :activity="recentActivity" />
           </div>
         </div>
       </template>
