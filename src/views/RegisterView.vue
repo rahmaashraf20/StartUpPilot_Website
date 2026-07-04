@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useApiRequest } from '../composables/useApiRequest'
@@ -8,9 +8,14 @@ import { useToast } from '../composables/useToast'
 const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
+
 const { loading, error, fieldErrors, run } = useApiRequest()
 
-const step = ref(0) // 0 = role select, 1 = account details
+// =======================
+// State
+// =======================
+
+const step = ref(0)
 
 const form = ref({
   fullName: '',
@@ -18,13 +23,6 @@ const form = ref({
   password: '',
   confirmPassword: '',
   role: '',
-})
-
-const errors = reactive({
-  fullName: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
 })
 
 const managerExtras = ref({
@@ -37,13 +35,26 @@ const employeeExtras = ref({
   department: '',
   experience: '',
   skills: '',
+  inviteCode: '',
 })
+
+const errors = ref({
+  fullName: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  inviteCode: '',
+})
+
+// =======================
+// Computed
+// =======================
 
 const isManager = computed(() => form.value.role === 'manager')
 
-const passwordsMatch = computed(() =>
-  form.value.password === form.value.confirmPassword
-)
+const passwordsMatch = computed(() => {
+  return form.value.password === form.value.confirmPassword
+})
 
 const requiredFieldsFilled = computed(() =>
   Boolean(
@@ -55,7 +66,7 @@ const requiredFieldsFilled = computed(() =>
 )
 
 const hasValidationErrors = computed(() =>
-  Object.values(errors).some(Boolean)
+  Object.values(errors.value).some(Boolean)
 )
 
 const isSubmitDisabled = computed(() =>
@@ -96,54 +107,88 @@ const benefits = computed(() =>
       ]
 )
 
-function selectRole(key) {
-  form.value.role = key
+// =======================
+// Helpers
+// =======================
+
+function selectRole(role) {
+  form.value.role = role
   step.value = 1
+}
+
+function resetErrors() {
+  Object.keys(errors.value).forEach((key) => {
+    errors.value[key] = ''
+  })
 }
 
 function validateField(field) {
   if (field === 'fullName') {
-    errors.fullName = form.value.fullName.trim() ? '' : 'Full name is required.'
+    errors.value.fullName = form.value.fullName.trim() ? '' : 'Full name is required.'
   }
 
   if (field === 'email') {
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    errors.email = emailPattern.test(form.value.email.trim()) ? '' : 'Enter a valid email address.'
+    if (!form.value.email.trim()) {
+      errors.value.email = 'Email is required.'
+    } else {
+      errors.value.email = emailPattern.test(form.value.email.trim()) ? '' : 'Enter a valid email address.'
+    }
   }
 
   if (field === 'password') {
     const password = form.value.password
-    if (password.length < 8) {
-      errors.password = 'Password must be at least 8 characters.'
+    if (!password) {
+      errors.value.password = 'Password is required.'
+    } else if (password.length < 8) {
+      errors.value.password = 'Password must be at least 8 characters.'
     } else if (!/[A-Z]/.test(password)) {
-      errors.password = 'Password must include at least one uppercase letter.'
+      errors.value.password = 'Password must include at least one uppercase letter.'
     } else if (!/\d/.test(password)) {
-      errors.password = 'Password must include at least one number.'
+      errors.value.password = 'Password must include at least one number.'
     } else {
-      errors.password = ''
+      errors.value.password = ''
     }
 
     if (form.value.confirmPassword) validateField('confirmPassword')
   }
 
   if (field === 'confirmPassword') {
-    errors.confirmPassword = form.value.confirmPassword === form.value.password
+    if (!form.value.confirmPassword) {
+      errors.value.confirmPassword = 'Please confirm your password.'
+    } else {
+      errors.value.confirmPassword = form.value.confirmPassword === form.value.password
+        ? ''
+        : 'Passwords do not match.'
+    }
+  }
+
+  if (field === 'inviteCode') {
+    errors.value.inviteCode = employeeExtras.value.inviteCode.trim()
       ? ''
-      : 'Passwords do not match.'
+      : 'Invitation code is required.'
   }
 }
 
 function validateForm() {
+  resetErrors()
+
   validateField('fullName')
   validateField('email')
   validateField('password')
   validateField('confirmPassword')
+
+  if (form.value.role === 'employee') validateField('inviteCode')
+
+  return !hasValidationErrors.value
 }
 
-async function handleRegister() {
-  validateForm()
+// =======================
+// Register
+// =======================
 
-  if (isSubmitDisabled.value) {
+async function handleRegister() {
+  if (!validateForm()) {
     toast.error('Please fix the highlighted fields')
     return
   }
@@ -159,8 +204,8 @@ async function handleRegister() {
     payload.workspaceName = managerExtras.value.startupName.trim()
     payload.startupName = managerExtras.value.startupName.trim()
   } else {
-    payload.inviteCode = ''
     payload.specialization = employeeExtras.value.skills.trim()
+    payload.inviteCode = employeeExtras.value.inviteCode.trim()
   }
 
   console.log('Register Payload:', payload)
@@ -168,18 +213,16 @@ async function handleRegister() {
   try {
     await run(() => auth.register(payload))
 
-    toast.success('Account created')
+    toast.success('Account created successfully.')
 
     router.push(
-  form.value.role === 'manager'
-    ? '/onboarding'
-    : '/join-workspace'
-)
+      form.value.role === 'manager'
+        ? '/onboarding'
+        : '/dashboard/employee'
+    )
   } catch (err) {
-    console.error('Register Error:', err)
-    console.error('API Error:', error.value)
-
-    toast.error(error.value || 'Registration failed')
+    console.error(err)
+    toast.error(error.value || 'Registration failed.')
   }
 }
 </script>
@@ -302,104 +345,277 @@ async function handleRegister() {
             </ul>
           </div>
 
-          <form @submit.prevent="handleRegister" class="space-y-4">
-            <div>
-              <label class="sp-label">Full name</label>
-              <input type="text" v-model="form.fullName" placeholder="Alex Johnson" class="sp-input" @input="validateField('fullName')" />
-              <p v-if="errors.fullName" class="text-xs text-red-500 mt-1.5">{{ errors.fullName }}</p>
-            </div>
-            <div>
-              <label class="sp-label">Email</label>
-              <input type="email" v-model="form.email" placeholder="alex@startup.com" class="sp-input" @input="validateField('email')" />
-              <p v-if="errors.email" class="text-xs text-red-500 mt-1.5">{{ errors.email }}</p>
-            </div>
-            <div>
-              <label class="sp-label">Password</label>
-              <input type="password" v-model="form.password" placeholder="Min. 8 characters" class="sp-input" @input="validateField('password')" />
-              <p v-if="errors.password" class="text-xs text-red-500 mt-1.5">{{ errors.password }}</p>
-            </div>
-            <div>
-              <label class="sp-label">Confirm password</label>
-              <input type="password" v-model="form.confirmPassword" placeholder="Repeat password" class="sp-input" @input="validateField('confirmPassword')" />
-              <p v-if="errors.confirmPassword" class="text-xs text-red-500 mt-1.5">{{ errors.confirmPassword }}</p>
-            </div>
+          <form @submit.prevent="handleRegister" class="space-y-5">
 
-            <!-- Optional, UI-only extras — never submitted to the register API -->
-            <div class="pt-2 border-t border-slate-100">
-              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-                Optional — helps us tailor your setup
-              </p>
+  <!-- Full Name -->
+  <div>
+    <label class="sp-label">
+      Full Name
+      <span class="text-red-500">*</span>
+    </label>
 
-              <div v-if="isManager" class="space-y-3">
-                <div>
-                  <label class="sp-label">Startup name</label>
-                  <input type="text" v-model="managerExtras.startupName" placeholder="e.g. Finterra" class="sp-input" />
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="sp-label">Company size</label>
-                    <select v-model="managerExtras.companySize" class="sp-input">
-                      <option value="">Select</option>
-                      <option value="solo">Just me</option>
-                      <option value="2-10">2–10</option>
-                      <option value="11-50">11–50</option>
-                      <option value="50+">50+</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="sp-label">Industry</label>
-                    <select v-model="managerExtras.industry" class="sp-input">
-                      <option value="">Select</option>
-                      <option value="saas">SaaS</option>
-                      <option value="fintech">Fintech</option>
-                      <option value="ai">AI</option>
-                      <option value="ecommerce">E-Commerce</option>
-                      <option value="health">Health Tech</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+    <input
+      v-model="form.fullName"
+      type="text"
+      placeholder="Alex Johnson"
+      class="sp-input"
+      :class="{ 'border-red-500': errors.fullName }"
+      @input="validateField('fullName')"
+    />
 
-              <div v-else class="space-y-3">
-                <div>
-                  <label class="sp-label">Department</label>
-                  <select v-model="employeeExtras.department" class="sp-input">
-                    <option value="">Select</option>
-                    <option value="engineering">Engineering</option>
-                    <option value="design">Design</option>
-                    <option value="marketing">Marketing</option>
-                    <option value="sales">Sales</option>
-                    <option value="operations">Operations</option>
-                  </select>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="sp-label">Experience</label>
-                    <select v-model="employeeExtras.experience" class="sp-input">
-                      <option value="">Select</option>
-                      <option value="junior">Junior</option>
-                      <option value="mid">Mid-level</option>
-                      <option value="senior">Senior</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="sp-label">Top skill</label>
-                    <input type="text" v-model="employeeExtras.skills" placeholder="e.g. Vue.js" class="sp-input" />
-                  </div>
-                </div>
-              </div>
-            </div>
+    <p
+      v-if="errors.fullName"
+      class="mt-1 text-sm text-red-500"
+    >
+      {{ errors.fullName }}
+    </p>
+  </div>
 
-            <button type="submit" :disabled="isSubmitDisabled"
-              class="sp-btn-primary w-full justify-center py-3 text-base shadow-elevated mt-2 disabled:opacity-60"
-              :class="theme.btn">
-              <svg v-if="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-              {{ loading ? 'Creating account...' : 'Create account' }}
-            </button>
+  <!-- Email -->
+  <div>
+    <label class="sp-label">
+      Email
+      <span class="text-red-500">*</span>
+    </label>
+
+    <input
+      v-model="form.email"
+      type="email"
+      placeholder="alex@startup.com"
+      class="sp-input"
+      :class="{ 'border-red-500': errors.email }"
+      @input="validateField('email')"
+    />
+
+    <p
+      v-if="errors.email"
+      class="mt-1 text-sm text-red-500"
+    >
+      {{ errors.email }}
+    </p>
+  </div>
+
+  <!-- Password -->
+  <div>
+    <label class="sp-label">
+      Password
+      <span class="text-red-500">*</span>
+    </label>
+
+    <input
+      v-model="form.password"
+      type="password"
+      placeholder="Minimum 8 characters"
+      class="sp-input"
+      :class="{ 'border-red-500': errors.password }"
+      @input="validateField('password')"
+    />
+
+    <p
+      v-if="errors.password"
+      class="mt-1 text-sm text-red-500"
+    >
+      {{ errors.password }}
+    </p>
+  </div>
+
+  <!-- Confirm Password -->
+  <div>
+    <label class="sp-label">
+      Confirm Password
+      <span class="text-red-500">*</span>
+    </label>
+
+    <input
+      v-model="form.confirmPassword"
+      type="password"
+      placeholder="Repeat your password"
+      class="sp-input"
+      :class="{ 'border-red-500': errors.confirmPassword }"
+      @input="validateField('confirmPassword')"
+    />
+
+    <p
+      v-if="errors.confirmPassword"
+      class="mt-1 text-sm text-red-500"
+    >
+      {{ errors.confirmPassword }}
+    </p>
+  </div>
+
+  <!-- Manager Fields -->
+  <div
+    v-if="isManager"
+    class="pt-5 border-t border-slate-100 space-y-4"
+  >
+
+    <div>
+      <label class="sp-label">
+        Startup Name
+      </label>
+
+      <input
+        v-model="managerExtras.startupName"
+        type="text"
+        placeholder="Finterra"
+        class="sp-input"
+      />
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+
+      <div>
+        <label class="sp-label">
+          Company Size
+        </label>
+
+        <select
+          v-model="managerExtras.companySize"
+          class="sp-input"
+        >
+          <option value="">Select</option>
+          <option value="solo">Just me</option>
+          <option value="2-10">2–10</option>
+          <option value="11-50">11–50</option>
+          <option value="50+">50+</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="sp-label">
+          Industry
+        </label>
+
+        <select
+          v-model="managerExtras.industry"
+          class="sp-input"
+        >
+          <option value="">Select</option>
+          <option value="saas">SaaS</option>
+          <option value="fintech">Fintech</option>
+          <option value="ai">AI</option>
+          <option value="ecommerce">E-Commerce</option>
+          <option value="health">Health Tech</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Employee Fields -->
+  <div
+    v-else
+    class="pt-5 border-t border-slate-100 space-y-4"
+  >
+
+    <div>
+      <label class="sp-label">
+        Invitation Code
+        <span class="text-red-500">*</span>
+      </label>
+
+      <input
+        v-model="employeeExtras.inviteCode"
+        type="text"
+        placeholder="Enter your invitation code"
+        class="sp-input"
+        :class="{ 'border-red-500': errors.inviteCode }"
+        @input="validateField('inviteCode')"
+      />
+
+      <p
+        v-if="errors.inviteCode"
+        class="mt-1 text-sm text-red-500"
+      >
+        {{ errors.inviteCode }}
+      </p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+
+      <div>
+        <label class="sp-label">
+          Experience
+        </label>
+
+        <select
+          v-model="employeeExtras.experience"
+          class="sp-input"
+        >
+          <option value="">Select</option>
+          <option value="junior">Junior</option>
+          <option value="mid">Mid-level</option>
+          <option value="senior">Senior</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="sp-label">
+          Top Skill
+        </label>
+
+        <input
+          v-model="employeeExtras.skills"
+          type="text"
+          placeholder="Vue.js"
+          class="sp-input"
+        />
+      </div>
+
+    </div>
+
+    <div>
+      <label class="sp-label">
+        Department
+      </label>
+
+      <select
+        v-model="employeeExtras.department"
+        class="sp-input"
+      >
+        <option value="">Select</option>
+        <option value="engineering">Engineering</option>
+        <option value="design">Design</option>
+        <option value="marketing">Marketing</option>
+        <option value="sales">Sales</option>
+        <option value="operations">Operations</option>
+      </select>
+    </div>
+
+  </div>
+
+  <button
+    type="submit"
+    :disabled="isSubmitDisabled"
+    class="sp-btn-primary w-full justify-center py-3 text-base shadow-elevated mt-2 disabled:opacity-60"
+    :class="theme.btn"
+  >
+    <svg
+      v-if="loading"
+      class="w-4 h-4 animate-spin"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        class="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="4"
+      />
+      <path
+        class="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
+
+    {{ loading ? 'Creating account...' : 'Create Account' }}
+  </button>
+
           </form>
         </div>
 

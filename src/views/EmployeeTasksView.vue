@@ -10,6 +10,7 @@ import AIRecommendationCard from '../components/dashboard/AIRecommendationCard.v
 import SkeletonBlock from '../components/dashboard/SkeletonBlock.vue'
 import { mockTasks, mockTasksAiRecommendation } from '../data/mockTasks'
 import { mockEmployeeUser } from '../data/mockEmployee'
+import { taskService } from '../services/taskService'
 
 const auth = useAuthStore()
 const toast = useToast()
@@ -24,15 +25,65 @@ function handleNavigate(id) {
 
 // ── Loading (prototype mode skeleton) ─────────────────────────────
 const isLoading = ref(true)
-onMounted(() => setTimeout(() => { isLoading.value = false }, 500))
+onMounted(async () => {
+  try {
+    const response = await taskService.getProjectTasks(
+      '6a4596e9a5776254d58c83b5'
+    )
 
-// ── Local task state ──────────────────────────────────────────────
-const tasks = ref(mockTasks.map((t) => ({
-  ...t,
-  checklist: (t.checklist || []).map((c) => ({ ...c })),
-  comments: (t.comments || []).map((c) => ({ ...c })),
-  attachments: (t.attachments || []).map((a) => ({ ...a })),
-})))
+    tasks.value = response.tasks.map((task) => ({
+      id: task._id,
+      title: task.title,
+      status: task.status,
+      priority:
+        task.priority === 'high'
+          ? 'High'
+          : task.priority === 'medium'
+          ? 'Medium'
+          : 'Low',
+
+      project: 'LaunchPilot AI',
+      dueDate: '',
+      estimatedTime: task.estimatedTime || '—',
+
+      assignedBy: 'Manager',
+
+      progress: task.status === 'done' ? 100 : 0,
+      done: task.status === 'done',
+
+      updatedAt: task.updatedAt,
+
+      checklist: [],
+      comments: [],
+      attachments: [],
+      activity: [],
+    }))
+    console.log('MAPPED TASKS', tasks.value)
+  } catch (error) {
+    console.error(error)
+  } finally {
+    isLoading.value = false
+  }
+})
+
+const tasks = ref([])
+// ── Priority Insight: pick the highest-priority pending task ───────
+// Falls back through High -> Medium -> Low instead of only matching
+// 'High', so the card always has something to recommend if any
+// pending task exists.
+const aiSuggestedTask = computed(() => {
+  const pending = tasks.value.filter((t) => t.status !== 'done')
+  if (pending.length === 0) return null
+  return [...pending].sort(
+    (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+  )[0]
+})
+
+const priorityHeadline = computed(() => {
+  return aiSuggestedTask.value
+    ? `Complete: ${aiSuggestedTask.value.title}`
+    : 'No pending tasks right now'
+})
 
 // ── Drawer ────────────────────────────────────────────────────────
 const drawerOpen = ref(false)
@@ -45,6 +96,11 @@ function openTask(task) {
 
 function closeDrawer() {
   drawerOpen.value = false
+}
+function handleStartSuggestedTask() {
+  if (aiSuggestedTask.value) {
+    openTask(aiSuggestedTask.value)
+  }
 }
 
 function handleComplete(id) {
@@ -67,25 +123,33 @@ function handleToggle(id) {
   if (t.done) t.progress = 100
 }
 
-function handleUpdateStatus({ id, status }) {
-  const t = tasks.value.find((t) => t.id === id)
-  if (!t) return
+async function handleUpdateStatus({ id, status }) {
+  try {
+    await taskService.updateTaskStatus(id, status)
 
-  const wasDone = t.status === 'done'
-  t.status = status
+    const t = tasks.value.find((t) => t.id === id)
+    if (!t) return
 
-  if (status === 'done') {
-    t.done = true
-    t.progress = 100
-    t.checklist = t.checklist.map((c) => ({ ...c, done: true }))
-  } else if (wasDone) {
-    t.done = false
-  }
+    const wasDone = t.status === 'done'
 
-  t.updatedAt = new Date().toISOString()
+    t.status = status
 
-  if (selectedTask.value && selectedTask.value.id === id) {
-    selectedTask.value = t
+    if (status === 'done') {
+      t.done = true
+      t.progress = 100
+    } else if (wasDone) {
+      t.done = false
+      t.progress = 0
+    }
+
+    if (selectedTask.value?.id === id) {
+      selectedTask.value = t
+    }
+
+    toast.success('Task updated successfully.')
+  } catch (error) {
+    console.error(error)
+    toast.error('Failed to update task.')
   }
 }
 
@@ -235,23 +299,10 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
     <div class="space-y-6 animate-fade-in">
 
       <!-- Page Header -->
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 class="text-2xl font-black text-slate-900 tracking-tight">My Tasks</h1>
-          <p class="text-sm text-slate-500 mt-1">Track, prioritize, and complete your assigned work.</p>
-        </div>
-        <button
-          type="button"
-          class="sp-btn-primary self-start sm:self-auto"
-          aria-label="Add new task"
-          @click="handleAddTask"
-        >
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Add Task
-        </button>
-      </div>
+<div>
+  <h1 class="text-2xl font-black text-slate-900 tracking-tight">My Tasks</h1>
+  <p class="text-sm text-slate-500 mt-1">Track, prioritize, and complete your assigned work.</p>
+</div>
 
       <!-- Loading Skeleton -->
       <template v-if="isLoading">
@@ -279,75 +330,128 @@ const noResults = computed(() => !isLoading.value && filtered.value.length === 0
 
         <!-- AI Recommendation -->
         <div class="animate-slide-up" style="animation-delay: 60ms">
-          <AIRecommendationCard
-            :tag="mockTasksAiRecommendation.tag"
-            :headline="mockTasksAiRecommendation.headline"
-            :body="mockTasksAiRecommendation.body"
-            :confidence="mockTasksAiRecommendation.confidence"
-            :task-title="mockTasksAiRecommendation.suggestedAction"
-            @apply="handleApplyAI"
+<AIRecommendationCard
+  tag="Priority Insight"
+  :headline="priorityHeadline"
+  body="Finishing this high-priority task will improve project progress and help keep delivery on schedule."
+  :confidence="88"
+  :show-action="!!aiSuggestedTask"
+  @apply="handleStartSuggestedTask"
+/>
+        </div>
+
+       <!-- Search + Sort -->
+<div class="animate-slide-up" style="animation-delay:100ms">
+
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+
+    <!-- Search -->
+    <div class="relative w-full lg:max-w-3xl">
+      <svg
+        class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+        />
+      </svg>
+
+      <input
+        v-model="searchQuery"
+        type="search"
+        placeholder="Search tasks by title, project, or description..."
+        class="w-full h-11 rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
+      />
+    </div>
+
+    <!-- Sort -->
+    <div class="flex items-center gap-2 shrink-0">
+      <svg
+        class="w-4 h-4 text-slate-400"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"
+        />
+      </svg>
+
+      <div class="relative">
+        <select
+          v-model="activeSort"
+          class="appearance-none h-11 rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-600 shadow-sm focus:border-primary focus:ring-4 focus:ring-violet-100 focus:outline-none"
+        >
+          <option
+            v-for="s in SORTS"
+            :key="s"
+          >
+            {{ s }}
+          </option>
+        </select>
+
+        <svg
+          class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M19 9l-7 7-7-7"
           />
-        </div>
+        </svg>
+      </div>
+    </div>
 
-        <!-- Search + Filters + Sort -->
-        <div class="animate-slide-up" style="animation-delay: 100ms">
-          <!-- Search -->
-          <div class="relative mb-3">
-            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              v-model="searchQuery"
-              type="search"
-              class="sp-input pl-10 pr-4 py-2.5"
-              placeholder="Search tasks by title, project, or description…"
-              aria-label="Search tasks"
-            />
-          </div>
+  </div>
 
-          <!-- Filter chips + Sort -->
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <!-- Filter chips -->
-            <div class="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Filter tasks">
-              <button
-                v-for="f in FILTERS"
-                :key="f"
-                type="button"
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 border"
-                :class="activeFilter === f
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-white text-slate-500 border-[#e4e4f0] hover:bg-slate-50 hover:text-slate-700'"
-                @click="activeFilter = f"
-              >
-                {{ f }}
-                <span
-                  v-if="f !== 'All'"
-                  class="ml-1 opacity-70"
-                >
-                  {{ f === 'Todo' ? tasks.filter(t => t.status === 'todo').length
-                    : f === 'In Progress' ? tasks.filter(t => t.status === 'in-progress').length
-                    : f === 'Review' ? tasks.filter(t => t.status === 'review').length
-                    : tasks.filter(t => t.done || t.status === 'done').length
-                  }}
-                </span>
-              </button>
-            </div>
+  <!-- Filters -->
+  <div
+    class="mt-4 flex items-center gap-2 flex-wrap"
+    role="group"
+    aria-label="Filter tasks"
+  >
+    <button
+      v-for="f in FILTERS"
+      :key="f"
+      type="button"
+      class="px-4 py-2 rounded-xl text-sm font-semibold transition-all border"
+      :class="activeFilter === f
+        ? 'bg-primary text-white border-primary shadow-sm'
+        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'"
+      @click="activeFilter = f"
+    >
+      {{ f }}
 
-            <!-- Sort -->
-            <div class="flex items-center gap-2">
-              <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-              </svg>
-              <select
-                v-model="activeSort"
-                class="text-xs font-semibold text-slate-600 bg-white border border-[#e4e4f0] rounded-lg px-2.5 py-1.5 cursor-pointer outline-none hover:bg-slate-50 focus:border-primary focus:ring-2 focus:ring-primary/10"
-                aria-label="Sort tasks"
-              >
-                <option v-for="s in SORTS" :key="s">{{ s }}</option>
-              </select>
-            </div>
-          </div>
-        </div>
+      <span
+        v-if="f !== 'All'"
+        class="ml-1 opacity-70"
+      >
+        {{
+          f === 'Todo'
+            ? tasks.filter(t => t.status === 'todo').length
+            : f === 'In Progress'
+            ? tasks.filter(t => t.status === 'in-progress').length
+            : f === 'Review'
+            ? tasks.filter(t => t.status === 'review').length
+            : tasks.filter(t => t.done || t.status === 'done').length
+        }}
+      </span>
+    </button>
+  </div>
+
+</div>
 
         <!-- Task List -->
         <div class="space-y-3 animate-slide-up" style="animation-delay: 140ms">

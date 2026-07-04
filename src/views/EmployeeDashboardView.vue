@@ -66,9 +66,24 @@ const priorityTaskCount = computed(
   () => tasks.value.filter((t) => !t.done && t.priority === 'High').length
 )
 
-const recommendedTaskTitle = computed(
-  () => tasks.value.find((t) => t.id === mockAiRecommendation.focusTaskId)?.title || ''
-)
+const PRIORITY_ORDER = { High: 0, Medium: 1, Low: 2 }
+
+const aiSuggestedTask = computed(() => {
+  const pending = tasks.value.filter((t) => t.status !== 'done')
+  if (pending.length === 0) return null
+  return [...pending].sort(
+    (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+  )[0]
+})
+
+const recommendedTaskTitle = computed(() => {
+  return aiSuggestedTask.value?.title || ''
+})
+const priorityHeadline = computed(() => {
+  return aiSuggestedTask.value
+    ? `Complete: ${aiSuggestedTask.value.title}`
+    : 'No pending tasks right now'
+})
 
 function handleToggleTask(id) {
   const task = tasks.value.find((t) => t.id === id)
@@ -81,11 +96,13 @@ function handleViewAllTasks() {
   router.push('/dashboard/employee/tasks')
 }
 
-// --- AI Recommendation --------------------------------------------------
 function handleApplyRecommendation() {
-  const target = tasks.value.find((t) => t.id === mockAiRecommendation.focusTaskId)
-  if (target) target.status = 'in-progress'
+  if (aiSuggestedTask.value) {
+    router.push('/dashboard/employee/tasks')
+  }
 }
+console.log('TASKS:', tasks.value)
+console.log('AI TASK:', aiSuggestedTask.value)
 </script>
 
 <template>
@@ -142,14 +159,14 @@ function handleApplyRecommendation() {
 
           <!-- Left: AI recommendation + Today's tasks -->
           <div class="lg:col-span-2 space-y-5 animate-slide-up" style="animation-delay: 80ms">
-            <AIRecommendationCard
-              :tag="mockAiRecommendation.tag"
-              :headline="mockAiRecommendation.headline"
-              :body="mockAiRecommendation.body"
-              :confidence="mockAiRecommendation.confidence"
-              :task-title="recommendedTaskTitle"
-              @apply="handleApplyRecommendation"
-            />
+<AIRecommendationCard
+  tag="Priority Insight"
+  :headline="priorityHeadline"
+  body="Finishing this high-priority task will improve project progress and help keep delivery on schedule."
+  :confidence="88"
+  :show-action="!!aiSuggestedTask"
+  @apply="handleApplyRecommendation"
+/>
             <TasksCard
               :tasks="tasks"
               @toggle-task="handleToggleTask"

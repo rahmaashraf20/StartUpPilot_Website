@@ -4,7 +4,7 @@
 // conventions inferred from the project spec. Adjust paths/payload keys here
 // if your actual Postman collection differs — every service file reads from
 // this single config, so one edit here propagates everywhere.
-
+console.log(import.meta.env.VITE_API_BASE_URL);
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'
 
